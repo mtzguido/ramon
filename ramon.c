@@ -28,9 +28,9 @@ int main(int argc, char **argv)
 		if (rc < 0)
 			quit("wait4");
 
-		fprintf(stderr, "CPU time = %li.%03li\n", res.ru_utime.tv_sec, res.ru_utime.tv_usec / 1000);
-		fprintf(stderr, "System time = %li.%03li\n", res.ru_stime.tv_sec, res.ru_utime.tv_usec / 1000);
-		fprintf(stderr, "Max RSS = %li\n", res.ru_maxrss);
+		fprintf(stderr, "CPU time = %li.%03lis\n", res.ru_utime.tv_sec, res.ru_utime.tv_usec / 1000);
+		fprintf(stderr, "System time = %li.%03lis\n", res.ru_stime.tv_sec, res.ru_utime.tv_usec / 1000);
+		fprintf(stderr, "Max RSS = %likb\n", res.ru_maxrss);
 
 		exit(WEXITSTATUS(status));
 	}
