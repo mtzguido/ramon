@@ -20,8 +20,7 @@ int main(int argc, char **argv)
 	if (!pid) {
 		execvp(argv[1], &argv[1]);
 		exit(127); /* if we couldn't exec, exit with 127 */
-	}
-	else {
+	} else {
 		int status;
 		struct rusage res;
 		rc = wait4(pid, &status, 0, &res);
