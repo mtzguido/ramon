@@ -55,13 +55,22 @@ void outf(const char *key, const char *fmt, ...)
 {
 	va_list va;
 
-	fputs(key, cfg.fout);
-	fputs("\t", cfg.fout);
+	if (cfg.fout == stderr)
+		fprintf(cfg.fout, "ramon: ");
+
+	fprintf(cfg.fout, "%-12s", key);
 
 	va_start(va, fmt);
 	vfprintf(cfg.fout, fmt, va);
 	va_end(va);
 	fputs("\n", cfg.fout);
+}
+
+const char *wifstring(int status)
+{
+	if (WIFEXITED(status)) return "normal";
+	if (WIFSIGNALED(status)) return "terminated by signal";
+	return "unknown (please file bug report)";
 }
 
 void monitor(int pid)
@@ -75,7 +84,16 @@ void monitor(int pid)
 	if (rc < 0)
 		quit("wait4");
 
-	outf("rc", "%i", WIFEXITED(status) ? WEXITSTATUS(status) : 9999);
+	outf("status", wifstring(status));
+
+	if (WIFEXITED(status))
+		outf("exitcode", "%i", WEXITSTATUS(status));
+
+	if (WIFSIGNALED(status)) {
+		outf("signal", "%i", WTERMSIG(status));
+		outf("coredump", "%s", WCOREDUMP(status) ? "true" : "false");
+	}
+
 	outf("cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
 	outf("sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
 	outf("maxrss", "%likb", res.ru_maxrss);
@@ -87,7 +105,7 @@ int main(int argc, char **argv)
 {
 	int pid;
 
-	/* non-constant defaults */
+	/* non-constant default configs */
 	cfg.fout = stderr;
 
 	parse_opts(argc, argv);
@@ -104,12 +122,15 @@ int main(int argc, char **argv)
 	 * 'command not found' otherwise. */
 	if (!pid) {
 		execvp(argv[optind], &argv[optind]);
+
+		/* exec failed if we reach here */
 		perror(argv[optind]);
-		exit(127); // command not found
+		exit(127);
 	}
 
 	monitor(pid);
 
-	/* Something went wrong if we reach this. */
+	/* something very bad happened if we reach here */
+	quit("wat????");
 	return -1;
 }
