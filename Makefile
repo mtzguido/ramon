@@ -1,9 +1,24 @@
+MAKEFLAGS += -r # No builtin rules
+.DELETE_ON_ERROR: # Delete failed targets
+.SECONDARY: # Do not delete intermediate files
+
+CC ?= cc
+CFLAGS = -Wall -Wextra -pedantic
+LDFLAGS =
+LDLIBS =
+
 all: ramon
 
-ramon: ramon.o
+%.o: %.c
+	$(CC) -c $(CFLAGS) $< -o $@
+
+%: %.o
+	$(CC) $(LDFLAGS) $< $(LDLIBS) -o $@
 
 clean:
 	rm -f ramon
 	rm -f *.o
 
-re: clean all
+re:
+	$(MAKE) clean
+	$(MAKE)
