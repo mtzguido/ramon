@@ -1,3 +1,3 @@
-[![Makefile CI](https://github.com/mtzguido/ramon/actions/workflows/makefile.yml/badge.svg)](https://github.com/mtzguido/ramon/actions/workflows/makefile.yml)
+[![Makefile CI](https://github.com/mtzguido/ramon/actions/workflows/ci.yml/badge.svg)](https://github.com/mtzguido/ramon/actions/workflows/ci.yml)
 # ramon
 Resource monitoring
