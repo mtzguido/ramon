@@ -7,8 +7,11 @@ jobs:
     strategy:
       matrix:
         os:
-        - debian-latest
         - ubuntu-latest
+        - ubuntu-16.04
+        - ubuntu-18.04
+        - macos-latest
+        - windows-latest
         compiler:
         - gcc
         - clang
