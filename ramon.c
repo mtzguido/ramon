@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -17,16 +18,20 @@ void quit(char *s) {
 struct cfg {
 	const char *outfile;
 	FILE *fout;
+	bool recursive;
 };
 
 /* Global config state */
 struct cfg cfg = {
 	.outfile = NULL,
 	.fout = NULL, /* set to stderr by main() */
+	.recursive = false,
 };
 
 const struct option longopts[] = {
 	{ .name = "output", .has_arg = required_argument, .flag = NULL, .val = 'o' },
+	{ .name = "recursive", .has_arg = no_argument, .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
+	{ .name = "no-recursive", .has_arg = no_argument, .flag = NULL, .val = '1' },
 	{0},
 };
 
@@ -39,6 +44,14 @@ void parse_opts(int argc, char **argv)
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
+			break;
+
+		case 'r':
+			cfg.recursive = true;
+			break;
+
+		case '1':
+			cfg.recursive = false;
 			break;
 
 		case -1:
@@ -73,14 +86,37 @@ const char *wifstring(int status)
 	return "unknown (please file bug report)";
 }
 
+struct rusage rusage_comb(const struct rusage r1, const struct rusage r2, int k)
+{
+	struct rusage ret = {0};
+
+#define C1(f) {ret.f = r1.f + k * r2.f;}
+
+	C1(ru_utime.tv_sec);
+	C1(ru_utime.tv_usec);
+	C1(ru_maxrss);
+
+#undef C1
+
+	return ret;
+}
+
+struct rusage rusage_add(const struct rusage r1, const struct rusage r2)
+{
+	return rusage_comb(r1, r2, 1);
+}
+struct rusage rusage_sub(const struct rusage r1, const struct rusage r2)
+{
+	return rusage_comb(r1, r2, -1);
+}
+
 void monitor(int pid)
 {
-	struct rusage res;
+	struct rusage self, child;
 	int status;
 	int rc;
 
-	rc = wait4(pid, &status, 0, &res);
-
+	rc = waitpid(pid, &status, 0);
 	if (rc < 0)
 		quit("wait4");
 
@@ -93,6 +129,12 @@ void monitor(int pid)
 		outf("signal", "%i", WTERMSIG(status));
 		outf("coredump", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
+
+	getrusage(RUSAGE_CHILDREN, &child);
+	/* getrusage(RUSAGE_SELF, &self); */
+
+	/* struct rusage res = rusage_sub(child, self); */
+	struct rusage res = child;
 
 	outf("cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
 	outf("sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
