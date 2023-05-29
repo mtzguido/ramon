@@ -29,9 +29,9 @@ struct cfg cfg = {
 };
 
 const struct option longopts[] = {
-	{ .name = "output", .has_arg = required_argument, .flag = NULL, .val = 'o' },
-	{ .name = "recursive", .has_arg = no_argument, .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
-	{ .name = "no-recursive", .has_arg = no_argument, .flag = NULL, .val = '1' },
+	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
+	{ .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
+	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
 	{0},
 };
 
