@@ -112,6 +112,16 @@ struct rusage rusage_sub(const struct rusage r1, const struct rusage r2)
 	return rusage_comb(r1, r2, -1);
 }
 
+static const char *signame(int sig)
+{
+	/* ideally use sigabbrev_np, but seems to be rather recent */
+#if __GLIBC >= 3 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 32)
+	return sigabbrev_np(sig);
+#else
+	return sys_siglist[sig] + 3; /* skip "SIG" */
+#endif
+}
+
 void monitor(int pid)
 {
 	struct rusage self, child;
@@ -129,7 +139,7 @@ void monitor(int pid)
 
 	if (WIFSIGNALED(status)) {
 		int sig = WTERMSIG(status);
-		outf("signal", "%i (SIG%s %s)", sig, sigabbrev_np(sig), strsignal(sig));
+		outf("signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
 		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 
