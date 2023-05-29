@@ -1,6 +1,8 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 #include <getopt.h>
 #include <stdarg.h>
@@ -71,7 +73,7 @@ void outf(const char *key, const char *fmt, ...)
 	if (cfg.fout == stderr)
 		fprintf(cfg.fout, "ramon: ");
 
-	fprintf(cfg.fout, "%-12s", key);
+	fprintf(cfg.fout, "%-16s", key);
 
 	va_start(va, fmt);
 	vfprintf(cfg.fout, fmt, va);
@@ -126,8 +128,9 @@ void monitor(int pid)
 		outf("exitcode", "%i", WEXITSTATUS(status));
 
 	if (WIFSIGNALED(status)) {
-		outf("signal", "%i", WTERMSIG(status));
-		outf("coredump", "%s", WCOREDUMP(status) ? "true" : "false");
+		int sig = WTERMSIG(status);
+		outf("signal", "%i (SIG%s %s)", sig, sigabbrev_np(sig), strsignal(sig));
+		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 
 	getrusage(RUSAGE_CHILDREN, &child);
@@ -143,6 +146,11 @@ void monitor(int pid)
 	exit(WEXITSTATUS(status));
 }
 
+void usage()
+{
+	fprintf(stderr, "rtfm!\n");
+}
+
 int main(int argc, char **argv)
 {
 	int pid;
@@ -156,6 +164,11 @@ int main(int argc, char **argv)
 		cfg.fout = fopen(cfg.outfile, "w");
 		if (!cfg.fout)
 			quit("fopen");
+	}
+
+	if (optind == argc) {
+		usage();
+		exit(1);
 	}
 
 	pid = fork();
