@@ -5,6 +5,7 @@ on:
 jobs:
   build_all:
     strategy:
+      fail-fast: false
       matrix:
         os:
         - ubuntu-latest
