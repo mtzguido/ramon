@@ -12,9 +12,15 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 
-void quit(char *s) {
+void quit(char *s)
+{
 	perror(s);
 	exit(1);
+}
+
+void warn(const char *s)
+{
+	fprintf(stderr, "WARNING: ramon: %s\n", s);
 }
 
 struct cfg {
@@ -42,17 +48,19 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
 			break;
 
 		case 'r':
+			warn("ignored");
 			cfg.recursive = true;
 			break;
 
 		case '1':
+			warn("ignored");
 			cfg.recursive = false;
 			break;
 
@@ -124,7 +132,8 @@ static const char *signame(int sig)
 
 void monitor(int pid)
 {
-	struct rusage self, child;
+	/* struct rusage self; */
+	struct rusage child;
 	int status;
 	int rc;
 
