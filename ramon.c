@@ -21,6 +21,7 @@ struct cfg {
 	const char *outfile;
 	FILE *fout;
 	bool recursive;
+	bool keep;
 };
 
 int cgroup_fd = 0;
@@ -68,12 +69,14 @@ struct cfg cfg = {
 	.outfile = NULL,
 	.fout = NULL, /* set to stderr by main() */
 	.recursive = false,
+	.keep = false,
 };
 
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
 	{ .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
 	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
+	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{0},
 };
 
@@ -82,7 +85,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1k", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
@@ -96,6 +99,10 @@ void parse_opts(int argc, char **argv)
 		case '1':
 			warn("ignored");
 			cfg.recursive = false;
+			break;
+
+		case 'k':
+			cfg.keep = true;
 			break;
 
 		case -1:
@@ -213,17 +220,6 @@ void try_rm_cgroup()
 	rc = rmdir(cgroup_path);
 	if (rc < 0 && errno != ENOENT)
 		quit("rmdir");
-	warn("try_rm succeeded???");
-}
-
-void make_fresh_cgroup()
-{
-	try_rm_cgroup();
-
-	//rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
-	//// FIXME: for now succeed if cgroup exists, find fresh one
-	//if (rc < 0 && errno != EEXIST)
-	//	quit("mkdir");
 }
 
 void put_in_cgroup(int child_pid)
@@ -276,7 +272,10 @@ void destroy_cgroup()
 		fclose(f);
 	}
 
-	/* try_rm_cgroup(); */
+	if (!cfg.keep)
+		try_rm_cgroup();
+	else
+		warn("Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
 }
 
 /* FIXME, very heuristic */
@@ -398,7 +397,6 @@ int main(int argc, char **argv)
 	}
 
 	find_cgroup_fs(); // also make
-	/* make_fresh_cgroup(); */
 
 	pid = fork();
 
