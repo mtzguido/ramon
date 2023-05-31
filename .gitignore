@@ -1,3 +1,4 @@
 **/*.o
 tags
 ramon
+.ramon_setcap
