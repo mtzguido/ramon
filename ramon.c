@@ -195,7 +195,8 @@ void find_cgroup_fs()
 		}
 
 		fscanf(f, "%s", buf);
-		strcat(buf, "/ramon/run_XXXXXX");
+		// FIXME: using /ramon/XXX mempeak is not found, wtf?
+		strcat(buf, "/ramon_run_XXXXXX");
 		char *p = mkdtemp(buf);
 		if (!p)
 			quit("mkdtemp");
