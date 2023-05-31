@@ -12,11 +12,13 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <linux/limits.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <assert.h>
 
-#define CGROUP_ROOT "/home/guido/cgroup2"
+int cgroup_fd = 0;
+char cgroup_path[PATH_MAX];
 
 void quit(char *s)
 {
@@ -87,6 +89,11 @@ void parse_opts(int argc, char **argv)
 	}
 }
 
+void usage()
+{
+	fprintf(stderr, "rtfm!\n");
+}
+
 void outf(const char *key, const char *fmt, ...)
 {
 	va_list va;
@@ -143,30 +150,57 @@ static const char *signame(int sig)
 #endif
 }
 
-void usage()
+void find_cgroup_fs()
 {
-	fprintf(stderr, "rtfm!\n");
+	char buf[PATH_MAX];
+
+	FILE *f = fopen("/proc/mounts", "r");
+	if (!f)
+		quit("fopen mounts");
+
+	while (fscanf(f, "%s", buf) > 0) {
+		if (strcmp(buf, "cgroup2")) {
+			/* skip line */
+			int c;
+			while ((c = fgetc(f)) != '\n' && c != EOF)
+				;
+			continue;
+		}
+
+		fscanf(f, "%s", buf);
+		strcat(buf, "/ramon_XXXXXX");
+		char *p = mkdtemp(buf);
+		if (!p)
+			quit("mkdtemp");
+
+		strcpy(cgroup_path, buf);
+
+		cgroup_fd = open(buf, O_DIRECTORY);
+		if (cgroup_fd < 0)
+			quit("open cgroup dir");
+		return;
+	}
+	quit("did not find cgroup2 mount");
 }
 
 void try_rm_cgroup()
 {
 	int rc;
 
-	rc = rmdir(CGROUP_ROOT "/ramon/");
+	rc = rmdir(cgroup_path);
 	if (rc < 0 && errno != ENOENT)
 		quit("rmdir");
+	warn("try_rm succeeded???");
 }
 
 void make_fresh_cgroup()
 {
-	int rc;
-
 	try_rm_cgroup();
 
-	rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
-	// FIXME: for now succeed if cgroup exists, find fresh one
-	if (rc < 0 && errno != EEXIST)
-		quit("mkdir");
+	//rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
+	//// FIXME: for now succeed if cgroup exists, find fresh one
+	//if (rc < 0 && errno != EEXIST)
+	//	quit("mkdir");
 }
 
 void put_in_cgroup(int child_pid)
@@ -174,7 +208,7 @@ void put_in_cgroup(int child_pid)
 	int rc;
 	char pidbuf[100];
 
-	int fd = open(CGROUP_ROOT "/ramon/cgroup.procs", O_WRONLY);
+	int fd = openat(cgroup_fd, "cgroup.procs", O_WRONLY);
 	if (fd < 0)
 		quit("open cgroup");
 
@@ -185,23 +219,34 @@ void put_in_cgroup(int child_pid)
 	close(fd);
 }
 
+FILE *fopenat(int dirfd, const char *pathname, int flags)
+{
+	int fd = openat(dirfd, pathname, flags);
+	if (fd < 0)
+		return NULL;
+	// FIXME: mode
+	return fdopen(fd, flags == O_RDONLY ? "r" : "w");
+}
+
 void destroy_cgroup()
 {
 	unsigned long n;
 	bool kill = false;
 	FILE *f;
 
-	f = fopen(CGROUP_ROOT "/ramon/cgroup.procs", "r");
+	f = fopenat(cgroup_fd, "cgroup.procs", O_RDONLY);
 	if (!f)
 		quit("open cgroup");
+
 	while (fscanf (f, "%lu", &n) > 0) {
-		warn("process still alive!!! %lu", n);
+		warn("A subprocess is still alive after main process finished (pid = %lu)", n);
 		kill = true;
 	}
 	fclose(f);
 
 	if (kill) {
-		f = fopen(CGROUP_ROOT "/ramon/cgroup.kill", "w");
+		warn("Killing remaining processes");
+		f = fopenat(cgroup_fd, "cgroup.kill", O_WRONLY);
 		if (!f)
 			quit("open cgroup");
 		fwrite("1", 1, 1, f);
@@ -215,7 +260,7 @@ void read_cgroup()
 {
 	unsigned long usage, user, system;
 	int rc;
-	FILE *f = fopen(CGROUP_ROOT "/ramon/cpu.stat", "r");
+	FILE *f = fopenat(cgroup_fd, "cpu.stat", O_RDONLY);
 	assert(f);
 
 	rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
@@ -285,7 +330,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	make_fresh_cgroup();
+	find_cgroup_fs(); // also make
+	/* make_fresh_cgroup(); */
 
 	pid = fork();
 
