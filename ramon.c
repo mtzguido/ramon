@@ -151,6 +151,11 @@ void usage()
 void make_fresh_cgroup()
 {
 	int rc;
+
+	rc = rmdir(CGROUP_ROOT "/ramon/");
+	if (rc < 0 && errno != ENOENT)
+		quit("rmdir");
+
 	rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
 	// FIXME: for now succeed if cgroup exists, find fresh one
 	if (rc < 0 && errno != EEXIST)
