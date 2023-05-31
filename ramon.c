@@ -148,13 +148,20 @@ void usage()
 	fprintf(stderr, "rtfm!\n");
 }
 
-void make_fresh_cgroup()
+void try_rm_cgroup()
 {
 	int rc;
 
 	rc = rmdir(CGROUP_ROOT "/ramon/");
 	if (rc < 0 && errno != ENOENT)
 		quit("rmdir");
+}
+
+void make_fresh_cgroup()
+{
+	int rc;
+
+	try_rm_cgroup();
 
 	rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
 	// FIXME: for now succeed if cgroup exists, find fresh one
@@ -200,6 +207,8 @@ void destroy_cgroup()
 		fwrite("1", 1, 1, f);
 		fclose(f);
 	}
+
+	/* try_rm_cgroup(); */
 }
 
 void read_cgroup()
@@ -223,12 +232,12 @@ void read_cgroup()
 
 void monitor(int pid)
 {
-	/* struct rusage self; */
+	struct rusage self;
 	struct rusage child;
 	int status;
 	int rc;
 
-	rc = waitpid(pid, &status, 0);
+	rc = wait4(pid, &status, 0, &child);
 	if (rc < 0)
 		quit("wait4");
 
@@ -242,15 +251,13 @@ void monitor(int pid)
 		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 
-	getrusage(RUSAGE_CHILDREN, &child);
-	/* getrusage(RUSAGE_SELF, &self); */
+	getrusage(RUSAGE_SELF, &self);
 
-	/* struct rusage res = rusage_sub(child, self); */
-	struct rusage res = child;
+	struct rusage res = rusage_sub(child, self);
 
-	outf("cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
-	outf("sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
-	outf("maxrss", "%likb", res.ru_maxrss);
+	outf("1 cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
+	outf("1 sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
+	outf("1 maxrss", "%likb", res.ru_maxrss);
 
 	read_cgroup();
 	destroy_cgroup();
