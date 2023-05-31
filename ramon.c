@@ -300,7 +300,10 @@ void read_cgroup()
 	{
 		unsigned long usage, user, system;
 		FILE *f = fopenat(cgroup_fd, "cpu.stat", O_RDONLY);
-		assert(f);
+		if (!f) {
+			warn("cpu.stat not found");
+			goto skip1;
+		}
 
 		rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
 				&usage, &user, &system);
@@ -312,12 +315,17 @@ void read_cgroup()
 		outf("cgroup usage:", "%.3fs", usage / 1000000.0);
 		outf("cgroup user:", "%.3fs", user / 1000000.0);
 		outf("cgroup system:", "%.3fs", system/ 1000000.0);
+skip1:
+		;
 	}
 	{
 		unsigned long mempeak;
 		const char *suf;
 		FILE *f = fopenat(cgroup_fd, "memory.peak", O_RDONLY);
-		assert(f);
+		if (!f) {
+			warn("mempeak not found");
+			goto skip2;
+		}
 
 		rc = fscanf(f, "%lu", &mempeak);
 
@@ -328,6 +336,8 @@ void read_cgroup()
 		mempeak = humanize(mempeak, &suf);
 
 		outf("cgroup mempeak:", "%lu%sB", mempeak, suf);
+skip2:
+		;
 	}
 
 }
