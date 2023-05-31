@@ -91,7 +91,7 @@ void outf(const char *key, const char *fmt, ...)
 
 const char *wifstring(int status)
 {
-	if (WIFEXITED(status)) return "normal";
+	if (WIFEXITED(status)) return "exited";
 	if (WIFSIGNALED(status)) return "terminated by signal";
 	return "unknown (please file bug report)";
 }
