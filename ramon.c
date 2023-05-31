@@ -308,14 +308,14 @@ void read_cgroup()
 
 		rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
 				&usage, &user, &system);
-
-		outf("fscanf rc", "%i", rc);
+		if (rc != 3)
+			warn("fscanf");
 
 		fclose(f);
 
-		outf("cgroup usage:", "%.3fs", usage / 1000000.0);
-		outf("cgroup user:", "%.3fs", user / 1000000.0);
-		outf("cgroup system:", "%.3fs", system/ 1000000.0);
+		outf("cgroup.usage", "%.3fs", usage / 1000000.0);
+		outf("cgroup.user", "%.3fs", user / 1000000.0);
+		outf("cgroup.system", "%.3fs", system/ 1000000.0);
 skip1:
 		;
 	}
@@ -330,13 +330,14 @@ skip1:
 
 		rc = fscanf(f, "%lu", &mempeak);
 
-		outf("fscanf rc", "%i", rc);
+		if (rc != 1)
+			warn("fscanf");
 
 		fclose(f);
 
 		mempeak = humanize(mempeak, &suf);
 
-		outf("cgroup mempeak:", "%lu%sB", mempeak, suf);
+		outf("cgroup.mempeak", "%lu%sB", mempeak, suf);
 skip2:
 		;
 	}
@@ -373,15 +374,15 @@ void monitor(struct timespec *t0, int pid)
 	/* struct rusage res = rusage_sub(child, self); */
 	struct rusage res = child;
 
-	outf("1 cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
-	outf("1 sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
-	outf("1 maxrss", "%likb", res.ru_maxrss);
+	outf("root.cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
+	outf("root.sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
+	outf("root.maxrss", "%liKB", res.ru_maxrss);
 
 	total_usec  = res.ru_utime.tv_sec * 1000000 + res.ru_utime.tv_usec;
 	total_usec += res.ru_stime.tv_sec * 1000000 + res.ru_stime.tv_usec;
 
 	rt_usec = 1000000 * (t1.tv_sec - t0->tv_sec) + (t1.tv_nsec - t0->tv_nsec) / 1000;
-	outf("parallel factor", "%.2f", (float)total_usec / rt_usec);
+	outf("parallelism", "%.2f", (float)total_usec / rt_usec);
 
 	read_cgroup();
 	destroy_cgroup();
