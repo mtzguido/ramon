@@ -7,10 +7,16 @@
 #include <getopt.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <errno.h>
+#include <assert.h>
+
+#define CGROUP_ROOT "/home/guido/cgroup2"
 
 void quit(char *s)
 {
@@ -18,9 +24,16 @@ void quit(char *s)
 	exit(1);
 }
 
-void warn(const char *s)
+void warn(const char *fmt, ...)
 {
-	fprintf(stderr, "WARNING: ramon: %s\n", s);
+	va_list va;
+
+	fprintf(stderr, "WARNING: ramon: ");
+
+	va_start(va, fmt);
+	vfprintf(stderr, fmt, va);
+	va_end(va);
+	fputs("\n", stderr);
 }
 
 struct cfg {
@@ -130,6 +143,79 @@ static const char *signame(int sig)
 #endif
 }
 
+void usage()
+{
+	fprintf(stderr, "rtfm!\n");
+}
+
+void make_fresh_cgroup()
+{
+	int rc;
+	rc = mkdir(CGROUP_ROOT "/ramon/", 0755);
+	// FIXME: for now succeed if cgroup exists, find fresh one
+	if (rc < 0 && errno != EEXIST)
+		quit("mkdir");
+}
+
+void put_in_cgroup(int child_pid)
+{
+	int rc;
+	char pidbuf[100];
+
+	int fd = open(CGROUP_ROOT "/ramon/cgroup.procs", O_WRONLY);
+	if (fd < 0)
+		quit("open cgroup");
+
+	sprintf(pidbuf, "%i", child_pid);
+	rc = write(fd, pidbuf, strlen(pidbuf));
+	if ((unsigned)rc < strlen(pidbuf))
+		quit("write");
+	close(fd);
+}
+
+void destroy_cgroup()
+{
+	unsigned long n;
+	bool kill = false;
+	FILE *f;
+
+	f = fopen(CGROUP_ROOT "/ramon/cgroup.procs", "r");
+	if (!f)
+		quit("open cgroup");
+	while (fscanf (f, "%lu", &n) > 0) {
+		warn("process still alive!!! %lu", n);
+		kill = true;
+	}
+	fclose(f);
+
+	if (kill) {
+		f = fopen(CGROUP_ROOT "/ramon/cgroup.kill", "w");
+		if (!f)
+			quit("open cgroup");
+		fwrite("1", 1, 1, f);
+		fclose(f);
+	}
+}
+
+void read_cgroup()
+{
+	unsigned long usage, user, system;
+	int rc;
+	FILE *f = fopen(CGROUP_ROOT "/ramon/cpu.stat", "r");
+	assert(f);
+
+	rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
+			&usage, &user, &system);
+
+	outf("fscanf rc", "%i", rc);
+
+	fclose(f);
+
+	outf("cgroup usage:", "%.3fs", usage / 1000000.0);
+	outf("cgroup user:", "%.3fs", user / 1000000.0);
+	outf("cgroup system:", "%.3fs", system/ 1000000.0);
+}
+
 void monitor(int pid)
 {
 	/* struct rusage self; */
@@ -143,10 +229,9 @@ void monitor(int pid)
 
 	outf("status", wifstring(status));
 
-	if (WIFEXITED(status))
+	if (WIFEXITED(status)) {
 		outf("exitcode", "%i", WEXITSTATUS(status));
-
-	if (WIFSIGNALED(status)) {
+	} else if (WIFSIGNALED(status)) {
 		int sig = WTERMSIG(status);
 		outf("signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
 		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
@@ -162,12 +247,10 @@ void monitor(int pid)
 	outf("sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
 	outf("maxrss", "%likb", res.ru_maxrss);
 
-	exit(WEXITSTATUS(status));
-}
+	read_cgroup();
+	destroy_cgroup();
 
-void usage()
-{
-	fprintf(stderr, "rtfm!\n");
+	exit(WEXITSTATUS(status));
 }
 
 int main(int argc, char **argv)
@@ -190,11 +273,21 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	make_fresh_cgroup();
+
 	pid = fork();
 
 	/* Child just executes the given command, exit with 127 (standard for
 	 * 'command not found' otherwise. */
 	if (!pid) {
+		/* Put self in fresh cgroup */
+		put_in_cgroup(getpid());
+
+		/* TODO: drop privileges */
+		warn("getuid() = %i", getuid());
+		setuid(getuid());
+
+		/* Execute given command */
 		execvp(argv[optind], &argv[optind]);
 
 		/* exec failed if we reach here */
