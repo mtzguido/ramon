@@ -187,7 +187,7 @@ void find_cgroup_fs()
 		}
 
 		fscanf(f, "%s", buf);
-		strcat(buf, "/ramon_XXXXXX");
+		strcat(buf, "/ramon/run_XXXXXX");
 		char *p = mkdtemp(buf);
 		if (!p)
 			quit("mkdtemp");
@@ -237,7 +237,7 @@ void put_in_cgroup(int child_pid)
 
 	sprintf(pidbuf, "%i", child_pid);
 	rc = write(fd, pidbuf, strlen(pidbuf));
-	if ((unsigned)rc < strlen(pidbuf))
+	if (rc < (ssize_t)strlen(pidbuf))
 		quit("write");
 	close(fd);
 }
@@ -344,7 +344,7 @@ skip2:
 
 void monitor(int pid)
 {
-	struct rusage self;
+	/* struct rusage self; */
 	struct rusage child;
 	int status;
 	int rc;
@@ -363,9 +363,9 @@ void monitor(int pid)
 		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 
-	getrusage(RUSAGE_SELF, &self);
-
-	struct rusage res = rusage_sub(child, self);
+	/* getrusage(RUSAGE_SELF, &self); */
+	/* struct rusage res = rusage_sub(child, self); */
+	struct rusage res = child;
 
 	outf("1 cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
 	outf("1 sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);

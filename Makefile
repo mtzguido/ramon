@@ -14,7 +14,7 @@ all: ramon .ramon_setcap
 	$(CC) $(LDFLAGS) $< $(LDLIBS) -o $@
 
 .ramon_setcap: ramon
-	sudo setcap cap_sys_admin+e ramon
+	sudo setcap cap_dac_override+eip ramon
 	@touch $@
 
 clean:
