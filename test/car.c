@@ -7,6 +7,7 @@ int main() {
 	const int sz = 1 << 30;
 	char *p = malloc(sz);
 	memset(p, 42, sz);
+	sleep(5);
 	free(p);
 	return 0;
 }

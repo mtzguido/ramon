@@ -13,10 +13,12 @@ int main()
 		const size_t sz = (size_t)1 << 31;
 		char *p = malloc(sz);
 		memset(p, 42, sz);
+		sleep(5);
 		free(p);
 		waitpid(pid, NULL, 0);
 	} else {
-		execl("./car.exe", "car.exe", NULL);
+		execl("./test/car.exe", "car.exe", NULL);
+		abort();
 	}
 	return 0;
 }

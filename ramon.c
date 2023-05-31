@@ -17,6 +17,12 @@
 #include <errno.h>
 #include <assert.h>
 
+struct cfg {
+	const char *outfile;
+	FILE *fout;
+	bool recursive;
+};
+
 int cgroup_fd = 0;
 char cgroup_path[PATH_MAX];
 
@@ -26,6 +32,7 @@ void quit(char *s)
 	exit(1);
 }
 
+/* Warn into stderr */
 void warn(const char *fmt, ...)
 {
 	va_list va;
@@ -38,11 +45,23 @@ void warn(const char *fmt, ...)
 	fputs("\n", stderr);
 }
 
-struct cfg {
-	const char *outfile;
-	FILE *fout;
-	bool recursive;
-};
+void __dbg(const char *fmt, ...)
+{
+	va_list va;
+
+	fprintf(stderr, "DEBUG: ramon: ");
+
+	va_start(va, fmt);
+	vfprintf(stderr, fmt, va);
+	va_end(va);
+	fputs("\n", stderr);
+}
+
+#if 1
+#define dbg(...) __dbg(__VA_ARGS__)
+#else
+#define dbg(...)
+#endif
 
 /* Global config state */
 struct cfg cfg = {
@@ -173,7 +192,11 @@ void find_cgroup_fs()
 		if (!p)
 			quit("mkdtemp");
 
+		/* Make the directory readable by group/other, as usual. */
+		chmod(p, 0755);
+
 		strcpy(cgroup_path, buf);
+		dbg("cgroup is '%s'", cgroup_path);
 
 		cgroup_fd = open(buf, O_DIRECTORY);
 		if (cgroup_fd < 0)
@@ -256,23 +279,57 @@ void destroy_cgroup()
 	/* try_rm_cgroup(); */
 }
 
+/* FIXME, very heuristic */
+unsigned long humanize(unsigned long x, const char **suf)
+{
+	static const char* sufs[] = { "", "K", "M", "G", "T", "P", NULL };
+	int pow = 0;
+
+	while (x > 102400 && sufs[pow+1] != NULL) {
+		pow++;
+		x /= 1024;
+	}
+	*suf = sufs[pow];
+	return x;
+}
+
 void read_cgroup()
 {
-	unsigned long usage, user, system;
 	int rc;
-	FILE *f = fopenat(cgroup_fd, "cpu.stat", O_RDONLY);
-	assert(f);
 
-	rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
-			&usage, &user, &system);
+	{
+		unsigned long usage, user, system;
+		FILE *f = fopenat(cgroup_fd, "cpu.stat", O_RDONLY);
+		assert(f);
 
-	outf("fscanf rc", "%i", rc);
+		rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
+				&usage, &user, &system);
 
-	fclose(f);
+		outf("fscanf rc", "%i", rc);
 
-	outf("cgroup usage:", "%.3fs", usage / 1000000.0);
-	outf("cgroup user:", "%.3fs", user / 1000000.0);
-	outf("cgroup system:", "%.3fs", system/ 1000000.0);
+		fclose(f);
+
+		outf("cgroup usage:", "%.3fs", usage / 1000000.0);
+		outf("cgroup user:", "%.3fs", user / 1000000.0);
+		outf("cgroup system:", "%.3fs", system/ 1000000.0);
+	}
+	{
+		unsigned long mempeak;
+		const char *suf;
+		FILE *f = fopenat(cgroup_fd, "memory.peak", O_RDONLY);
+		assert(f);
+
+		rc = fscanf(f, "%lu", &mempeak);
+
+		outf("fscanf rc", "%i", rc);
+
+		fclose(f);
+
+		mempeak = humanize(mempeak, &suf);
+
+		outf("cgroup mempeak:", "%lu%sB", mempeak, suf);
+	}
+
 }
 
 void monitor(int pid)
