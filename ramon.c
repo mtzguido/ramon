@@ -14,6 +14,7 @@
 #include <sys/resource.h>
 #include <linux/limits.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <errno.h>
 #include <assert.h>
 
@@ -341,16 +342,21 @@ skip2:
 
 }
 
-void monitor(int pid)
+void monitor(struct timespec *t0, int pid)
 {
+	struct timespec t1;
 	/* struct rusage self; */
 	struct rusage child;
 	int status;
 	int rc;
+	unsigned long rt_usec;
+	unsigned long total_usec;
 
 	rc = wait4(pid, &status, 0, &child);
 	if (rc < 0)
 		quit("wait4");
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
 
 	outf("status", wifstring(status));
 
@@ -370,6 +376,12 @@ void monitor(int pid)
 	outf("1 sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
 	outf("1 maxrss", "%likb", res.ru_maxrss);
 
+	total_usec  = res.ru_utime.tv_sec * 1000000 + res.ru_utime.tv_usec;
+	total_usec += res.ru_stime.tv_sec * 1000000 + res.ru_stime.tv_usec;
+
+	rt_usec = 1000000 * (t1.tv_sec - t0->tv_sec) + (t1.tv_nsec - t0->tv_nsec) / 1000;
+	outf("parallel factor", "%.2f", (float)total_usec / rt_usec);
+
 	read_cgroup();
 	destroy_cgroup();
 
@@ -379,6 +391,7 @@ void monitor(int pid)
 int main(int argc, char **argv)
 {
 	int pid;
+	struct timespec t0;
 
 	/* non-constant default configs */
 	cfg.fout = stderr;
@@ -398,8 +411,9 @@ int main(int argc, char **argv)
 
 	find_cgroup_fs(); // also make
 
-	pid = fork();
+	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
 
+	pid = fork();
 	/* Child just executes the given command, exit with 127 (standard for
 	 * 'command not found' otherwise. */
 	if (!pid) {
@@ -418,7 +432,7 @@ int main(int argc, char **argv)
 		exit(127);
 	}
 
-	monitor(pid);
+	monitor(&t0, pid);
 
 	/* something very bad happened if we reach here */
 	quit("wat????");
