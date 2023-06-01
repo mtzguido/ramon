@@ -26,6 +26,7 @@ struct cfg {
 	const char *tally;
 	int debug_level;
 	bool save; /* save to a fresh file */
+	int pollms;
 };
 
 int cgroup_fd = 0;
@@ -81,6 +82,7 @@ struct cfg cfg = {
 	.keep = false,
 	.tally = NULL,
 	.debug_level = 1,
+	.pollms = 0,
 };
 
 const struct option longopts[] = {
@@ -90,6 +92,7 @@ const struct option longopts[] = {
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{ .name = "save",         .has_arg = required_argument, .flag = NULL, .val = 's' },
+	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -99,7 +102,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqs", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqsp:", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
@@ -136,6 +139,13 @@ void parse_opts(int argc, char **argv)
 			cfg.save = true;
 			break;
 
+		case 'p':
+			if (optarg)
+				cfg.pollms = atoi(optarg);
+			else
+				cfg.pollms = 500;
+			break;
+
 		case -1:
 			return;
 
@@ -158,7 +168,7 @@ void outf(const char *key, const char *fmt, ...)
 	if (cfg.fout == stderr)
 		fprintf(cfg.fout, "ramon: ");
 
-	fprintf(cfg.fout, "%-16s", key);
+	fprintf(cfg.fout, "%-20s ", key);
 
 	va_start(va, fmt);
 	vfprintf(cfg.fout, fmt, va);
@@ -436,6 +446,26 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 	return rc;
 }
 
+unsigned long last_poll_usage;
+
+void poll(int sig __attribute__((unused)))
+{
+	{
+		unsigned long usage, user, system;
+		struct kvfmt cpukeys[] = {
+			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
+			{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
+			{ .key = "system_usec", .fmt = "%lu", .wo = &system },
+		};
+		open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
+		outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
+		outf("poll.estimated.load", "%.2f", (usage - last_poll_usage) / (1000.0 * cfg.pollms));
+		/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
+		/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
+		last_poll_usage = usage;
+	}
+}
+
 void read_cgroup()
 {
 	{
@@ -485,8 +515,30 @@ int monitor(struct timespec *t0, int pid)
 	unsigned long rt_usec;
 	unsigned long total_usec;
 
+	if (cfg.pollms > 0) {
+		struct timeval tv;
+		struct itimerval itv;
+		int pollms = cfg.pollms;
+		tv.tv_sec = pollms / 1000;
+		pollms %= 1000;
+		tv.tv_usec = pollms * 1000;
+
+		itv.it_interval = tv;
+		itv.it_value    = tv;
+
+		struct sigaction sa = {0};
+		sa.sa_handler = poll;
+
+		sigaction(SIGALRM, &sa, NULL);
+
+		setitimer(ITIMER_REAL, &itv, NULL);
+	}
+
+wait_again:
 	rc = wait4(pid, &status, 0, &child);
-	if (rc < 0)
+	if (rc < 0 && errno == EINTR)
+		goto wait_again;
+	else if (rc < 0)
 		quit("wait4");
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
