@@ -382,6 +382,7 @@ void monitor(struct timespec *t0, int pid)
 	total_usec += res.ru_stime.tv_sec * 1000000 + res.ru_stime.tv_usec;
 
 	rt_usec = 1000000 * (t1.tv_sec - t0->tv_sec) + (t1.tv_nsec - t0->tv_nsec) / 1000;
+	outf("walltime", "%.3fs", total_usec / 1000000.0);
 	outf("parallelism", "%.2f", (float)total_usec / rt_usec);
 
 	read_cgroup();
