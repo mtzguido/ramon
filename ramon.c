@@ -25,6 +25,7 @@ struct cfg {
 	bool keep;
 	const char *tally;
 	int debug_level;
+	bool save; /* save to a fresh file */
 };
 
 int cgroup_fd = 0;
@@ -88,6 +89,7 @@ const struct option longopts[] = {
 	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
+	{ .name = "save",         .has_arg = required_argument, .flag = NULL, .val = 's' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -97,7 +99,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dq", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqs", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
@@ -128,6 +130,10 @@ void parse_opts(int argc, char **argv)
 		case 'q':
 			if (cfg.debug_level > 0)
 				cfg.debug_level--;
+			break;
+
+		case 's':
+			cfg.save = true;
 			break;
 
 		case -1:
@@ -524,6 +530,14 @@ int main(int argc, char **argv)
 		cfg.fout = fopen(cfg.outfile, "w");
 		if (!cfg.fout)
 			quit("fopen");
+	} else if (cfg.save) {
+		char temp[] = "XXXXXX.runlim";
+		int fd = mkstemps(temp, 7);
+		if (fd < 0)
+			quit("mkstemp");
+		cfg.fout = fdopen(fd, "w");
+		if (!cfg.fout)
+			quit("fdopen");
 	}
 
 	/* Tally mode: just parse a cgroup dir and exit,
@@ -545,6 +559,22 @@ int main(int argc, char **argv)
 	make_sub_cgroup();
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
+
+	{
+		int i;
+		for (i = optind; i < argc; i++)
+			outf("argv", "%i = %s", i-optind, argv[i]);
+	}
+
+	{
+		char date[200];
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		struct tm *tm;
+		tm = localtime(&tv.tv_sec);
+		strftime(date, sizeof date, "%c", tm);
+		outf("date", "%s", date);
+	}
 
 	pid = fork();
 	/* Child just executes the given command, exit with 127 (standard for
