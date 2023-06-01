@@ -281,6 +281,9 @@ void destroy_cgroup()
 		fclose(f);
 	}
 
+	/* FIXME: There is a race here between killing the group
+	 * and being able to remove it. */
+
 	if (!cfg.keep)
 		try_rm_cgroup();
 	else
