@@ -24,6 +24,7 @@ struct cfg {
 	bool recursive;
 	bool keep;
 	const char *tally;
+	int debug_level;
 };
 
 int cgroup_fd = 0;
@@ -62,7 +63,11 @@ void __dbg(const char *fmt, ...)
 }
 
 #if 1
-#define dbg(...) __dbg(__VA_ARGS__)
+#define dbg(n, ...)		do {		\
+	if (cfg.debug_level >= n)		\
+		__dbg(__VA_ARGS__);		\
+	} while(0);
+
 #else
 #define dbg(...)
 #endif
@@ -74,6 +79,7 @@ struct cfg cfg = {
 	.recursive = false,
 	.keep = false,
 	.tally = NULL,
+	.debug_level = 1,
 };
 
 const struct option longopts[] = {
@@ -82,6 +88,7 @@ const struct option longopts[] = {
 	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
+	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
 
@@ -90,7 +97,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dq", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
@@ -112,6 +119,15 @@ void parse_opts(int argc, char **argv)
 
 		case 'k':
 			cfg.keep = true;
+			break;
+
+		case 'd':
+			cfg.debug_level++;
+			break;
+
+		case 'q':
+			if (cfg.debug_level > 0)
+				cfg.debug_level--;
 			break;
 
 		case -1:
@@ -225,7 +241,7 @@ void make_new_cgroup()
 	chmod(p, 0755);
 
 	strcpy(cgroup_path, buf);
-	dbg("cgroup is '%s'", cgroup_path);
+	dbg(2, "cgroup is '%s'", cgroup_path);
 
 	cgroup_fd = open(buf, O_DIRECTORY);
 	if (cgroup_fd < 0)
@@ -257,7 +273,7 @@ void make_sub_cgroup()
 	chmod(p, 0755);
 
 	strcpy(cgroup_path, buf2);
-	dbg("cgroup is '%s'", cgroup_path);
+	dbg(2, "cgroup is '%s'", cgroup_path);
 
 	cgroup_fd = open(buf2, O_DIRECTORY);
 	if (cgroup_fd < 0)
@@ -309,13 +325,13 @@ void destroy_cgroup()
 		quit("open cgroup");
 
 	while (fscanf (f, "%lu", &n) > 0) {
-		warn("A subprocess is still alive after main process finished (pid = %lu)", n);
+		dbg(1, "A subprocess is still alive after main process finished (pid = %lu)", n);
 		kill = true;
 	}
 	fclose(f);
 
 	if (kill) {
-		warn("Killing remaining processes");
+		dbg(1, "Killing remaining processes");
 		f = fopenat(cgroup_fd, "cgroup.kill", O_WRONLY);
 		if (!f)
 			quit("open cgroup");
@@ -329,7 +345,7 @@ void destroy_cgroup()
 	if (!cfg.keep)
 		try_rm_cgroup();
 	else
-		warn("Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
+		dbg(1, "Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
 }
 
 /* FIXME, very heuristic */
@@ -538,7 +554,7 @@ int main(int argc, char **argv)
 		put_in_cgroup(getpid());
 
 		/* TODO: drop privileges */
-		warn("getuid() = %i", getuid());
+		dbg(2, "getuid() = %i", getuid());
 		setuid(getuid());
 
 		/* Execute given command */
