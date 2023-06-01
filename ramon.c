@@ -294,52 +294,103 @@ unsigned long humanize(unsigned long x, const char **suf)
 	return x;
 }
 
+struct kvfmt {
+	const char *key;
+	const char *fmt;
+	void *wo;
+};
+
+int read_kvs(FILE *f, int nk, struct kvfmt kvs[])
+{
+	char key[256]; // review
+	int n = 0;
+	int i;
+
+	while (!feof(f)) {
+		if (1 != fscanf(f, "%s", key))
+			return n;
+
+		for (i = 0; i < nk; i++) {
+			if (strcmp(kvs[i].key, key))
+				continue;
+
+			if (1 != fscanf(f, kvs[i].fmt, kvs[i].wo)) {
+				warn("scan failed for %s", key);
+			}
+			n++;
+			break;
+		}
+		/* no match, skip line */
+		if (i == nk) {
+			/* skip line */
+			int c;
+			while ((c = fgetc(f)) != '\n' && c != EOF)
+				;
+			continue;
+		}
+	}
+
+	return n;
+}
+
+int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[])
+{
+	FILE *f = fopenat(dirfd, pathname, O_RDONLY);
+	if (!f) {
+		warn("could not open %s", pathname);
+		return -1;
+	}
+	int n = read_kvs(f, nk, kvs);
+	fclose(f);
+	if (n < nk)
+		warn("could not read everything");
+	return n;
+}
+
+int open_and_read_val(int dirfd, const char *pathname, const char *fmt, void *wo)
+{
+	FILE *f = fopenat(dirfd, pathname, O_RDONLY);
+	if (!f) {
+		warn("could not open %s", pathname);
+		return -1;
+	}
+	int rc = fscanf(f, fmt, wo);
+	fclose(f);
+	if (rc != 1)
+		warn("could not read value");
+	return rc;
+}
+
 void read_cgroup()
 {
-	int rc;
-
 	{
 		unsigned long usage, user, system;
-		FILE *f = fopenat(cgroup_fd, "cpu.stat", O_RDONLY);
-		if (!f) {
-			warn("cpu.stat not found");
-			goto skip1;
-		}
+		struct kvfmt cpukeys[] = {
+			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
+			{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
+			{ .key = "system_usec", .fmt = "%lu", .wo = &system },
+		};
 
-		rc = fscanf(f, "usage_usec %lu user_usec %lu system_usec %lu",
-				&usage, &user, &system);
-		if (rc != 3)
-			warn("fscanf");
-
-		fclose(f);
+		open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
 		outf("cgroup.usage", "%.3fs", usage / 1000000.0);
 		outf("cgroup.user", "%.3fs", user / 1000000.0);
 		outf("cgroup.system", "%.3fs", system/ 1000000.0);
-skip1:
-		;
 	}
+
 	{
 		unsigned long mempeak;
 		const char *suf;
-		FILE *f = fopenat(cgroup_fd, "memory.peak", O_RDONLY);
-		if (!f) {
-			warn("mempeak not found");
-			goto skip2;
+
+		if (open_and_read_val(cgroup_fd, "memory.peak", "%lu", &mempeak) > 0) {
+			mempeak = humanize(mempeak, &suf);
+			outf("cgroup.mempeak", "%lu%sB", mempeak, suf);
 		}
-
-		rc = fscanf(f, "%lu", &mempeak);
-
-		if (rc != 1)
-			warn("fscanf");
-
-		fclose(f);
-
-		mempeak = humanize(mempeak, &suf);
-
-		outf("cgroup.mempeak", "%lu%sB", mempeak, suf);
-skip2:
-		;
+	}
+	{
+		unsigned long pidpeak;
+		if (open_and_read_val(cgroup_fd, "pids.peak", "%lu", &pidpeak) > 0)
+			outf("cgroup.pidpeak", "%lu", pidpeak);
 	}
 
 }
