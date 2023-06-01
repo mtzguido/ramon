@@ -3,8 +3,7 @@
 Resource monitoring
 
 TODO:
-- Use cgroups
-- That will require `CAP_SYS_ADMIN`
+- Sort out cgroups1 vs cgroups2, can we support both?
 - Report recursive (group) and individual (getrusage/wait4, or proc, kinda broken now)
 - OPTIONAL polling to show a graph of CPU/memory usage
 - make hierarchical: find current cgroup and nest within it
