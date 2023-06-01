@@ -23,6 +23,7 @@ struct cfg {
 	FILE *fout;
 	bool recursive;
 	bool keep;
+	const char *tally;
 };
 
 int cgroup_fd = 0;
@@ -71,6 +72,7 @@ struct cfg cfg = {
 	.fout = NULL, /* set to stderr by main() */
 	.recursive = false,
 	.keep = false,
+	.tally = NULL,
 };
 
 const struct option longopts[] = {
@@ -78,6 +80,7 @@ const struct option longopts[] = {
 	{ .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
 	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
+	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{0},
 };
 
@@ -86,10 +89,14 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1k", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:", longopts, NULL);
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
+			break;
+
+		case 't':
+			cfg.tally = optarg;
 			break;
 
 		case 'r':
@@ -456,6 +463,16 @@ int main(int argc, char **argv)
 		cfg.fout = fopen(cfg.outfile, "w");
 		if (!cfg.fout)
 			quit("fopen");
+	}
+
+	/* Tally mode: just parse a cgroup dir and exit,
+	 * no running anything. */
+	if (cfg.tally) {
+		cgroup_fd = open(cfg.tally, O_DIRECTORY);
+		if (cgroup_fd < 0)
+			quit("open cgroup dir");
+		read_cgroup();
+		exit(0);
 	}
 
 	if (optind == argc) {
