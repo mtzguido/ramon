@@ -184,6 +184,9 @@ static const char *signame(int sig)
 #endif
 }
 
+
+#if 0
+/* Creates a new cgroup at the root and opens the directory. */
 void find_cgroup_fs()
 {
 	char buf[PATH_MAX];
@@ -220,6 +223,35 @@ void find_cgroup_fs()
 		return;
 	}
 	quit("did not find cgroup2 mount");
+}
+*/
+#endif
+
+void make_sub_cgroup()
+{
+	char buf[PATH_MAX];
+
+	sprintf(buf, "/proc/%i/cgroup", getpid());
+
+	FILE *f = fopen(buf, "r");
+	if (fscanf(f, "0::%s", buf) != 1)
+		quit("fscanf 0::... is this cgroups v2?");
+	fclose(f);
+
+	strcat(buf, "/ramon_XXXXXX");
+	char *p = mkdtemp(buf);
+	if (!p)
+		quit("mkdtemp");
+
+	/* Make the directory readable by group/other, as usual. */
+	chmod(p, 0755);
+
+	strcpy(cgroup_path, buf);
+	dbg("cgroup is '%s'", cgroup_path);
+
+	cgroup_fd = open(buf, O_DIRECTORY);
+	if (cgroup_fd < 0)
+		quit("open cgroup dir");
 }
 
 void try_rm_cgroup()
@@ -483,7 +515,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	find_cgroup_fs(); // also make
+	make_sub_cgroup();
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
 
