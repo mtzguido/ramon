@@ -421,16 +421,17 @@ int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[
 	return n;
 }
 
-int open_and_read_val(int dirfd, const char *pathname, const char *fmt, void *wo)
+int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *fmt, void *wo)
 {
 	FILE *f = fopenat(dirfd, pathname, O_RDONLY);
 	if (!f) {
-		warn("could not open %s", pathname);
+		if (!nowarn)
+			warn("could not open %s", pathname);
 		return -1;
 	}
 	int rc = fscanf(f, fmt, wo);
 	fclose(f);
-	if (rc != 1)
+	if (!nowarn && rc != 1)
 		warn("could not read value");
 	return rc;
 }
@@ -456,20 +457,25 @@ void read_cgroup()
 		unsigned long mempeak;
 		const char *suf;
 
-		if (open_and_read_val(cgroup_fd, "memory.peak", "%lu", &mempeak) > 0) {
+		if (open_and_read_val(true, cgroup_fd, "memory.peak", "%lu", &mempeak) > 0) {
 			mempeak = humanize(mempeak, &suf);
 			outf("cgroup.mempeak", "%lu%sB", mempeak, suf);
+		} else {
+			outf("cgroup.mempeak", "???");
 		}
 	}
 	{
 		unsigned long pidpeak;
-		if (open_and_read_val(cgroup_fd, "pids.peak", "%lu", &pidpeak) > 0)
+		if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &pidpeak) > 0)
 			outf("cgroup.pidpeak", "%lu", pidpeak);
+		else
+			outf("cgroup.pidpeak", "???");
 	}
 
 }
 
-void monitor(struct timespec *t0, int pid)
+/* Returns the exit code of pid */
+int monitor(struct timespec *t0, int pid)
 {
 	struct timespec t1;
 	/* struct rusage self; */
@@ -513,7 +519,7 @@ void monitor(struct timespec *t0, int pid)
 	read_cgroup();
 	destroy_cgroup();
 
-	exit(WEXITSTATUS(status));
+	return WEXITSTATUS(status);
 }
 
 int main(int argc, char **argv)
@@ -573,7 +579,7 @@ int main(int argc, char **argv)
 		struct tm *tm;
 		tm = localtime(&tv.tv_sec);
 		strftime(date, sizeof date, "%c", tm);
-		outf("date", "%s", date);
+		outf("start", "%s", date);
 	}
 
 	pid = fork();
@@ -595,9 +601,17 @@ int main(int argc, char **argv)
 		exit(127);
 	}
 
-	monitor(&t0, pid);
+	int rc = monitor(&t0, pid);
 
-	/* something very bad happened if we reach here */
-	quit("wat????");
-	return -1;
+	{
+		char date[200];
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		struct tm *tm;
+		tm = localtime(&tv.tv_sec);
+		strftime(date, sizeof date, "%c", tm);
+		outf("end", "%s", date);
+	}
+
+	return rc;
 }
