@@ -91,7 +91,7 @@ const struct option longopts[] = {
 	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
-	{ .name = "save",         .has_arg = required_argument, .flag = NULL, .val = 's' },
+	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
@@ -102,7 +102,8 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqsp:", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqsp", longopts, NULL);
+		/* printf("opt = '%c', optarg = %s\n", rc, optarg); */
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
@@ -143,7 +144,7 @@ void parse_opts(int argc, char **argv)
 			if (optarg)
 				cfg.pollms = atoi(optarg);
 			else
-				cfg.pollms = 500;
+				cfg.pollms = 1000;
 			break;
 
 		case -1:
