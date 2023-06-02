@@ -607,12 +607,12 @@ int exec_and_monitor(int argc, char **argv)
 	struct timespec t0;
 	int pid, rc;
 
-	find_cgroup_fs();
 	if (getenv("RAMONROOT")) {
-		dbg(2, "RAMONROOT = %s", getenv("RAMONROOT"));
+		dbg(1, "nested under %s", getenv("RAMONROOT"));
 		strcpy(cgroupfs_root, getenv("RAMONROOT"));
 		make_sub_cgroup();
 	} else {
+		find_cgroup_fs();
 		make_new_cgroup();
 		setenv("RAMONROOT", cgroup_path, 1);
 	}
