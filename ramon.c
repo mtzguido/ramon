@@ -460,15 +460,21 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 }
 
 unsigned long last_poll_usage;
+bool should_poll = false;
 
-void poll(int sig __attribute__((unused)))
+void sa_poll(int sig __attribute__((unused)))
+{
+	should_poll = true;
+}
+
+void poll()
 {
 	{
 		unsigned long usage, user, system;
 		struct kvfmt cpukeys[] = {
 			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-			{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
-			{ .key = "system_usec", .fmt = "%lu", .wo = &system },
+			/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
+			/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
 		};
 		open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 		outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
@@ -540,7 +546,7 @@ int monitor(struct timespec *t0, int pid)
 		itv.it_value    = tv;
 
 		struct sigaction sa = {0};
-		sa.sa_handler = poll;
+		sa.sa_handler = sa_poll;
 
 		sigaction(SIGALRM, &sa, NULL);
 
@@ -549,10 +555,13 @@ int monitor(struct timespec *t0, int pid)
 
 wait_again:
 	rc = wait4(pid, &status, 0, &child);
-	if (rc < 0 && errno == EINTR)
+	if (rc < 0 && errno == EINTR) {
+		if (should_poll)
+			poll();
 		goto wait_again;
-	else if (rc < 0)
+	} else if (rc < 0) {
 		quit("wait4");
+	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
 
