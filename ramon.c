@@ -600,10 +600,76 @@ wait_again:
 	return WEXITSTATUS(status);
 }
 
+int exec_and_monitor(int argc, char **argv)
+{
+	struct timespec t0;
+	int pid, rc;
+
+	find_cgroup_fs();
+	make_sub_cgroup();
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
+
+	{
+		int i;
+		for (i = 0; i < argc; i++)
+			outf("argv", "%i = %s", i, argv[i]);
+	}
+
+	{
+		char date[200];
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		struct tm *tm;
+		tm = localtime(&tv.tv_sec);
+		strftime(date, sizeof date, "%c", tm);
+		outf("start", "%s", date);
+	}
+
+	pid = fork();
+	/* Child just executes the given command, exit with 127 (standard for
+	 * 'command not found' otherwise. */
+	if (!pid) {
+		/* Put self in fresh cgroup */
+		put_in_cgroup(getpid());
+
+		close(cgroup_fd);
+		if (cfg.outfile)
+			fclose(cfg.fout);
+
+		/* TODO: drop privileges */
+		dbg(2, "getuid() = %i", getuid());
+		setuid(getuid());
+
+		/* Execute given command */
+		execvp(argv[0], argv);
+
+		/* exec failed if we reach here */
+		perror(argv[0]);
+		exit(127);
+	}
+
+	rc = monitor(&t0, pid);
+
+	{
+		char date[200];
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		struct tm *tm;
+		tm = localtime(&tv.tv_sec);
+		strftime(date, sizeof date, "%c", tm);
+		outf("end", "%s", date);
+	}
+
+	if (cfg.outfile)
+		fclose(cfg.fout);
+
+	return rc;
+}
+
 int main(int argc, char **argv)
 {
-	int pid;
-	struct timespec t0;
+	int rc;
 
 	/* non-constant default configs */
 	cfg.fout = stderr;
@@ -639,64 +705,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	find_cgroup_fs();
-	make_sub_cgroup();
-
-	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
-
-	{
-		int i;
-		for (i = optind; i < argc; i++)
-			outf("argv", "%i = %s", i-optind, argv[i]);
-	}
-
-	{
-		char date[200];
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
-		struct tm *tm;
-		tm = localtime(&tv.tv_sec);
-		strftime(date, sizeof date, "%c", tm);
-		outf("start", "%s", date);
-	}
-
-	pid = fork();
-	/* Child just executes the given command, exit with 127 (standard for
-	 * 'command not found' otherwise. */
-	if (!pid) {
-		/* Put self in fresh cgroup */
-		put_in_cgroup(getpid());
-
-		close(cgroup_fd);
-		if (cfg.outfile)
-			fclose(cfg.fout);
-
-		/* TODO: drop privileges */
-		dbg(2, "getuid() = %i", getuid());
-		setuid(getuid());
-
-		/* Execute given command */
-		execvp(argv[optind], &argv[optind]);
-
-		/* exec failed if we reach here */
-		perror(argv[optind]);
-		exit(127);
-	}
-
-	int rc = monitor(&t0, pid);
-
-	{
-		char date[200];
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
-		struct tm *tm;
-		tm = localtime(&tv.tv_sec);
-		strftime(date, sizeof date, "%c", tm);
-		outf("end", "%s", date);
-	}
-
-	if (cfg.outfile)
-		fclose(cfg.fout);
+	rc = exec_and_monitor(argc - optind, argv + optind);
 
 	return rc;
 }
