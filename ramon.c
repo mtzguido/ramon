@@ -486,6 +486,7 @@ void poll()
 		/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
 		/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
 		last_poll_usage = usage;
+		fflush(cfg.fout);
 	}
 }
 
