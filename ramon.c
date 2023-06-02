@@ -470,13 +470,15 @@ void sa_poll(int sig __attribute__((unused)))
 void poll()
 {
 	{
-		unsigned long usage, user, system;
+		unsigned long usage;
+		/* unsigned long user; */
+		/* unsigned long system; */
 		struct kvfmt cpukeys[] = {
 			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
 			/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
 			/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
 		};
-		open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
+		open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
 		outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
 		outf("poll.estimated.load", "%.2f", (usage - last_poll_usage) / (1000.0 * cfg.pollms));
 		/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
