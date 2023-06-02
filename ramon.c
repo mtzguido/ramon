@@ -482,7 +482,7 @@ void poll()
 		};
 		open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
 		outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
-		outf("poll.estimated.load", "%.2f", (usage - last_poll_usage) / (1000.0 * cfg.pollms));
+		outf("poll.load", "%.2f", (usage - last_poll_usage) / (1000.0 * cfg.pollms));
 		/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
 		/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
 		last_poll_usage = usage;
@@ -592,7 +592,7 @@ wait_again:
 
 	rt_usec = 1000000 * (t1.tv_sec - t0->tv_sec) + (t1.tv_nsec - t0->tv_nsec) / 1000;
 	outf("walltime", "%.3fs", rt_usec / 1000000.0);
-	outf("parallelism", "%.2f", (float)total_usec / rt_usec);
+	outf("loadavg", "%.2f", (float)total_usec / rt_usec);
 
 	read_cgroup();
 	destroy_cgroup();
