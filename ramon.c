@@ -276,28 +276,29 @@ void make_new_cgroup()
 /* Make a cgroup under the current one */
 void make_sub_cgroup()
 {
-	char buf[PATH_MAX];
+	/* char buf[PATH_MAX]; */
 	char buf2[PATH_MAX];
 
-	sprintf(buf, "/proc/%i/cgroup", getpid());
+/*         sprintf(buf, "/proc/%i/cgroup", getpid()); */
 
-	FILE *f = fopen(buf, "r");
-	assert(f);
-	buf[0] = 0;
-	while (!feof(f)) {
-		if (fscanf(f, "0::%s", buf) != 1) {
-			skipline(f);
-			continue;
-		}
-		goto ok;
-	}
-	quit("could not find root cgroup... is /proc/pid/cgroup ok?");
-ok:
-	fclose(f);
+/*         FILE *f = fopen(buf, "r"); */
+/*         assert(f); */
+/*         buf[0] = 0; */
+/*         while (!feof(f)) { */
+/*                 if (fscanf(f, "0::%s", buf) != 1) { */
+/*                         skipline(f); */
+/*                         continue; */
+/*                 } */
+/*                 goto ok; */
+/*         } */
+/*         quit("could not find root cgroup... is /proc/pid/cgroup ok?"); */
+/* ok: */
+/*         fclose(f); */
 
 	char *q = buf2;
-	q = stpcpy(q, cgroupfs_root);
-	q = stpcpy(q, buf);
+	/* q = stpcpy(q, cgroupfs_root); */
+	/* q = stpcpy(q, buf); */
+	q = stpcpy(q, getenv("RAMONROOT"));
 	q = stpcpy(q, "/ramon_XXXXXX");
 	char *p = mkdtemp(buf2);
 	if (!p)
@@ -609,7 +610,7 @@ int exec_and_monitor(int argc, char **argv)
 	find_cgroup_fs();
 	if (getenv("RAMONROOT")) {
 		dbg(2, "RAMONROOT = %s", getenv("RAMONROOT"));
-		/* strcpy(cgroupfs_root, getenv("RAMONROOT")); */
+		strcpy(cgroupfs_root, getenv("RAMONROOT"));
 		make_sub_cgroup();
 	} else {
 		make_new_cgroup();
