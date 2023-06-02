@@ -243,6 +243,7 @@ void find_cgroup_fs()
 			continue;
 		}
 		fscanf(f, "%s", cgroupfs_root);
+		fclose(f);
 		return;
 	}
 	quit("did not find cgroup2 mount");
@@ -693,6 +694,9 @@ int main(int argc, char **argv)
 		strftime(date, sizeof date, "%c", tm);
 		outf("end", "%s", date);
 	}
+
+	if (cfg.outfile)
+		fclose(cfg.fout);
 
 	return rc;
 }
