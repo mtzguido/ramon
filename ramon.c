@@ -607,7 +607,14 @@ int exec_and_monitor(int argc, char **argv)
 	int pid, rc;
 
 	find_cgroup_fs();
-	make_sub_cgroup();
+	if (getenv("RAMONROOT")) {
+		dbg(2, "RAMONROOT = %s", getenv("RAMONROOT"));
+		/* strcpy(cgroupfs_root, getenv("RAMONROOT")); */
+		make_sub_cgroup();
+	} else {
+		make_new_cgroup();
+		setenv("RAMONROOT", cgroup_path, 1);
+	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
 
