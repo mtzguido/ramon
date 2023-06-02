@@ -217,6 +217,16 @@ static const char *signame(int sig)
 #endif
 }
 
+void skipline(FILE *f)
+{
+	int c;
+	do {
+		c = fgetc(f);
+	} while (c != '\n' && c != EOF);
+	/* while ((c = fgetc(f)) != '\n' && c != EOF) */
+	/*         ; */
+}
+
 /* Find root of cgroup2 mount */
 void find_cgroup_fs()
 {
@@ -228,10 +238,7 @@ void find_cgroup_fs()
 
 	while (fscanf(f, "%s", buf) > 0) {
 		if (strcmp(buf, "cgroup2")) {
-			/* skip line */
-			int c;
-			while ((c = fgetc(f)) != '\n' && c != EOF)
-				;
+			skipline(f);
 			continue;
 		}
 		fscanf(f, "%s", cgroupfs_root);
@@ -273,8 +280,17 @@ void make_sub_cgroup()
 	sprintf(buf, "/proc/%i/cgroup", getpid());
 
 	FILE *f = fopen(buf, "r");
-	if (fscanf(f, "0::%s", buf) != 1)
-		quit("fscanf 0::... is this cgroups v2?");
+	assert(f);
+	buf[0] = 0;
+	while (!feof(f)) {
+		if (fscanf(f, "0::%s", buf) != 1) {
+			skipline(f);
+			continue;
+		}
+		goto ok;
+	}
+	quit("could not find root cgroup... is /proc/pid/cgroup ok?");
+ok:
 	fclose(f);
 
 	char *q = buf2;
@@ -406,10 +422,7 @@ int read_kvs(FILE *f, int nk, struct kvfmt kvs[])
 		}
 		/* no match, skip line */
 		if (i == nk) {
-			/* skip line */
-			int c;
-			while ((c = fgetc(f)) != '\n' && c != EOF)
-				;
+			skipline(f);
 			continue;
 		}
 	}
