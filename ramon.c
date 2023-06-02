@@ -641,6 +641,10 @@ int main(int argc, char **argv)
 		/* Put self in fresh cgroup */
 		put_in_cgroup(getpid());
 
+		close(cgroup_fd);
+		if (cfg.outfile)
+			fclose(cfg.fout);
+
 		/* TODO: drop privileges */
 		dbg(2, "getuid() = %i", getuid());
 		setuid(getuid());
