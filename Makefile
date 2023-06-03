@@ -1,7 +1,7 @@
 include suckless.mk
 
 CC ?= cc
-CFLAGS = -Wall -Wextra -pedantic
+CFLAGS = -Wall -Wextra -pedantic -std=c99
 LDFLAGS =
 LDLIBS =
 

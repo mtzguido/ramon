@@ -1,24 +1,26 @@
 #define _GNU_SOURCE
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <linux/limits.h>
+#include <sched.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <stdarg.h>
-#include <stdbool.h>
-#include <fcntl.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/time.h>
-#include <sys/resource.h>
-#include <linux/limits.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
-#include <errno.h>
-#include <assert.h>
+#include <unistd.h>
 
 struct cfg {
 	const char *outfile;
@@ -27,17 +29,54 @@ struct cfg {
 	bool keep;
 	const char *tally;
 	int debug_level;
+	int verbosity;
 	bool save; /* save to a fresh file */
 	int pollms;
 };
 
-int cgroup_fd = 0;
+/* Global config state */
+struct cfg cfg = {
+	.outfile = NULL,
+	.fout = NULL, /* set to stderr by main() */
+	.recursive = false,
+	.keep = false,
+	.tally = NULL,
+	.debug_level = 1,
+	.verbosity = 1, /* TODO: choose defaults. */
+	.pollms = 0,
+};
+
+struct cgroup_res_info
+{
+	long usage_usec;
+	long user_usec;
+	long system_usec;
+	long mempeak;
+	long pidpeak;
+};
+
+/* open directory fd for our cgroup */
+int cgroup_fd;
+/* parent cgroup directory */
 char cgroupfs_root[PATH_MAX];
+/* our cgroup */
 char cgroup_path[PATH_MAX];
 
-void quit(char *s)
+/* start and finish timestamps of subprocess */
+struct timespec t0, t1;
+
+void quit(const char *fmt, ...)
 {
-	perror(s);
+	va_list va;
+	int _errno = errno;
+
+	fprintf(stderr, "ERROR: ramon: ");
+
+	va_start(va, fmt);
+	vfprintf(stderr, fmt, va);
+	va_end(va);
+	fprintf(stderr, " (%s)", strerror(_errno));
+	fputs("\n", stderr);
 	exit(1);
 }
 
@@ -66,26 +105,21 @@ void __dbg(const char *fmt, ...)
 	fputs("\n", stderr);
 }
 
-#if 1
-#define dbg(n, ...)		do {		\
-	if (cfg.debug_level >= n)		\
-		__dbg(__VA_ARGS__);		\
+#define dbg(n, ...)				\
+	do {					\
+		if (cfg.debug_level >= n)	\
+			__dbg(__VA_ARGS__);	\
 	} while(0);
 
-#else
-#define dbg(...)
-#endif
-
-/* Global config state */
-struct cfg cfg = {
-	.outfile = NULL,
-	.fout = NULL, /* set to stderr by main() */
-	.recursive = false,
-	.keep = false,
-	.tally = NULL,
-	.debug_level = 1,
-	.pollms = 0,
-};
+FILE *fopenat(int dirfd, const char *pathname, const char *mode)
+{
+	int flags = (strchr(mode, 'r') ? O_RDONLY : 0)
+		  | (strchr(mode, 'w') ? O_WRONLY : 0);
+	int fd = openat(dirfd, pathname, flags);
+	if (fd < 0)
+		return NULL;
+	return fdopen(fd, mode);
+}
 
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
@@ -95,16 +129,22 @@ const struct option longopts[] = {
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
+	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
+
+void help(const char *progname)
+{
+	fprintf(stderr, "%s: IOU a manual!\n", progname);
+}
 
 void parse_opts(int argc, char **argv)
 {
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqsp", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqsphv", longopts, NULL);
 		/* printf("opt = '%c', optarg = %s\n", rc, optarg); */
 		switch (rc) {
 		case 'o':
@@ -133,6 +173,10 @@ void parse_opts(int argc, char **argv)
 			cfg.debug_level++;
 			break;
 
+		case 'v':
+			cfg.verbosity++;
+			break;
+
 		case 'q':
 			if (cfg.debug_level > 0)
 				cfg.debug_level--;
@@ -149,6 +193,10 @@ void parse_opts(int argc, char **argv)
 				cfg.pollms = 1000;
 			break;
 
+		case 'h':
+			help(argv[0]);
+			exit(0);
+
 		case -1:
 			return;
 
@@ -159,19 +207,12 @@ void parse_opts(int argc, char **argv)
 	}
 }
 
-void usage()
-{
-	fprintf(stderr, "rtfm!\n");
-}
-
-void outf(const char *key, const char *fmt, ...)
+void __outf(const char *key, const char *fmt, ...)
 {
 	va_list va;
 
-	if (cfg.fout == stderr)
-		fprintf(cfg.fout, "ramon: ");
-
-	fprintf(cfg.fout, "%-20s ", key);
+	/* When printing to stderr we prepend a marker */
+	fprintf(cfg.fout, "%s%-20s ", cfg.fout == stderr ? "ramon: " : "", key);
 
 	va_start(va, fmt);
 	vfprintf(cfg.fout, fmt, va);
@@ -179,35 +220,17 @@ void outf(const char *key, const char *fmt, ...)
 	fputs("\n", cfg.fout);
 }
 
+#define outf(n, ...)				\
+	do {					\
+		if (cfg.verbosity >= n)		\
+			__outf(__VA_ARGS__);	\
+	} while(0);
+
 const char *wifstring(int status)
 {
 	if (WIFEXITED(status)) return "exited";
 	if (WIFSIGNALED(status)) return "terminated by signal";
 	return "unknown (please file bug report)";
-}
-
-struct rusage rusage_comb(const struct rusage r1, const struct rusage r2, int k)
-{
-	struct rusage ret = {0};
-
-#define C1(f) {ret.f = r1.f + k * r2.f;}
-
-	C1(ru_utime.tv_sec);
-	C1(ru_utime.tv_usec);
-	C1(ru_maxrss);
-
-#undef C1
-
-	return ret;
-}
-
-struct rusage rusage_add(const struct rusage r1, const struct rusage r2)
-{
-	return rusage_comb(r1, r2, 1);
-}
-struct rusage rusage_sub(const struct rusage r1, const struct rusage r2)
-{
-	return rusage_comb(r1, r2, -1);
 }
 
 static const char *signame(int sig)
@@ -223,11 +246,8 @@ static const char *signame(int sig)
 void skipline(FILE *f)
 {
 	int c;
-	do {
-		c = fgetc(f);
-	} while (c != '\n' && c != EOF);
-	/* while ((c = fgetc(f)) != '\n' && c != EOF) */
-	/*         ; */
+	while ((c = fgetc(f)) != '\n' && c != EOF)
+		;
 }
 
 /* Find root of cgroup2 mount */
@@ -258,7 +278,6 @@ void make_new_cgroup()
 
 	strcpy(buf, cgroupfs_root);
 
-	// FIXME: using /ramon/XXX mempeak is not found, wtf?
 	strcat(buf, "/ramon_run_XXXXXX");
 	char *p = mkdtemp(buf);
 	if (!p)
@@ -268,9 +287,9 @@ void make_new_cgroup()
 	chmod(p, 0755);
 
 	strcpy(cgroup_path, buf);
-	dbg(2, "cgroup is '%s'", cgroup_path);
+	dbg(2, "Created cgroup '%s'", cgroup_path);
 
-	cgroup_fd = open(buf, O_DIRECTORY);
+	cgroup_fd = open(buf, O_DIRECTORY | O_CLOEXEC);
 	if (cgroup_fd < 0)
 		quit("open cgroup dir");
 }
@@ -281,9 +300,7 @@ void make_sub_cgroup()
 	/* char buf[PATH_MAX]; */
 	char buf2[PATH_MAX];
 
-/*         sprintf(buf, "/proc/%i/cgroup", getpid()); */
-
-/*         FILE *f = fopen(buf, "r"); */
+/*         FILE *f = fopen("/proc/self/cgroup", "r"); */
 /*         assert(f); */
 /*         buf[0] = 0; */
 /*         while (!feof(f)) { */
@@ -312,7 +329,7 @@ void make_sub_cgroup()
 	strcpy(cgroup_path, buf2);
 	dbg(2, "cgroup is '%s'", cgroup_path);
 
-	cgroup_fd = open(buf2, O_DIRECTORY);
+	cgroup_fd = open(buf2, O_DIRECTORY | O_CLOEXEC);
 	if (cgroup_fd < 0)
 		quit("open cgroup dir");
 }
@@ -326,54 +343,62 @@ void try_rm_cgroup()
 		quit("rmdir");
 }
 
-void put_in_cgroup(int child_pid)
+void put_in_cgroup()
 {
 	int rc;
-	char pidbuf[100];
 
 	int fd = openat(cgroup_fd, "cgroup.procs", O_WRONLY);
 	if (fd < 0)
 		quit("open cgroup");
 
-	sprintf(pidbuf, "%i", child_pid);
-	rc = write(fd, pidbuf, strlen(pidbuf));
-	if (rc < (ssize_t)strlen(pidbuf))
+	/* Writing "0" adds the current process to the group */
+	rc = write(fd, "0", 1);
+	if (rc < 1)
 		quit("write");
+
 	close(fd);
 }
 
-FILE *fopenat(int dirfd, const char *pathname, int flags)
+bool any_in_cgroup()
 {
-	int fd = openat(dirfd, pathname, flags);
-	if (fd < 0)
-		return NULL;
-	// FIXME: mode
-	return fdopen(fd, flags == O_RDONLY ? "r" : "w");
-}
-
-void destroy_cgroup()
-{
+	bool ret = false;
 	unsigned long n;
-	bool kill = false;
 	FILE *f;
 
-	f = fopenat(cgroup_fd, "cgroup.procs", O_RDONLY);
+	f = fopenat(cgroup_fd, "cgroup.procs", "r");
 	if (!f)
 		quit("open cgroup");
 
 	while (fscanf (f, "%lu", &n) > 0) {
 		dbg(1, "A subprocess is still alive after main process finished (pid = %lu)", n);
-		kill = true;
+		ret = true;
 	}
+
 	fclose(f);
 
-	if (kill) {
+	return ret;
+}
+
+void kill_cgroup()
+{
+	int fd, rc;
+
+	fd = openat(cgroup_fd, "cgroup.kill", O_WRONLY);
+	if (fd < 0)
+		quit("open cgroup");
+
+	rc = write(fd, "1", 1);
+	if (rc != 1)
+		quit("write cgroup.kill");
+
+	close(fd);
+}
+
+void destroy_cgroup()
+{
+	if (any_in_cgroup()) {
 		dbg(1, "Killing remaining processes");
-		f = fopenat(cgroup_fd, "cgroup.kill", O_WRONLY);
-		if (!f)
-			quit("open cgroup");
-		fwrite("1", 1, 1, f);
-		fclose(f);
+		kill_cgroup();
 	}
 
 	/* FIXME: There is a race here between killing the group
@@ -439,7 +464,7 @@ int read_kvs(FILE *f, int nk, struct kvfmt kvs[])
 
 int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[])
 {
-	FILE *f = fopenat(dirfd, pathname, O_RDONLY);
+	FILE *f = fopenat(dirfd, pathname, "r");
 	if (!f) {
 		warn("could not open %s", pathname);
 		return -1;
@@ -453,7 +478,7 @@ int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[
 
 int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *fmt, void *wo)
 {
-	FILE *f = fopenat(dirfd, pathname, O_RDONLY);
+	FILE *f = fopenat(dirfd, pathname, "r");
 	if (!f) {
 		if (!nowarn)
 			warn("could not open %s", pathname);
@@ -464,6 +489,31 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 	if (!nowarn && rc != 1)
 		warn("could not read value");
 	return rc;
+}
+
+void print_current_time(const char *key)
+{
+	struct timeval tv;
+	int rc;
+
+	rc = gettimeofday(&tv, NULL);
+	if (rc < 0)
+		goto fail;
+
+	char *date = ctime(&tv.tv_sec);
+	if (!date)
+		goto fail;
+
+	/* remove trailing newline */
+	int i = strlen(date);
+	if (i > 0 && date[i-1] == '\n')
+		date[i-1] = 0;
+
+	outf(1, key, "%s", date);
+	return;
+
+fail:
+	outf(1, key, "unknown (%s)", strerror(errno));
 }
 
 unsigned long last_poll_usage;
@@ -495,8 +545,8 @@ void poll()
 	};
 	open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
 
-	outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
-	outf("poll.load", "%.2f", 1.0 * (usage - last_poll_usage) / delta_us);
+	outf(0, "poll.group.usage", "%.3fs", usage / 1000000.0);
+	outf(0, "poll.load", "%.2f", 1.0 * (usage - last_poll_usage) / delta_us);
 	/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
 	/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
 	last_poll_usage = usage;
@@ -504,91 +554,124 @@ void poll()
 	fflush(cfg.fout);
 }
 
-void read_cgroup()
+void read_cgroup(struct cgroup_res_info *wo)
 {
-	{
-		unsigned long usage, user, system;
-		struct kvfmt cpukeys[] = {
-			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-			{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
-			{ .key = "system_usec", .fmt = "%lu", .wo = &system },
-		};
+	struct kvfmt cpukeys[] = {
+		{ .key = "usage_usec",  .fmt = "%li", .wo = &wo->usage_usec  },
+		{ .key = "user_usec",   .fmt = "%li", .wo = &wo->user_usec   },
+		{ .key = "system_usec", .fmt = "%li", .wo = &wo->system_usec },
+	};
+	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
-		open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
+	if (open_and_read_val(true, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
+		wo->mempeak = -1;
 
-		outf("cgroup.usage", "%.3fs", usage / 1000000.0);
-		outf("cgroup.user", "%.3fs", user / 1000000.0);
-		outf("cgroup.system", "%.3fs", system/ 1000000.0);
-	}
-
-	{
-		unsigned long mempeak;
-		const char *suf;
-
-		if (open_and_read_val(true, cgroup_fd, "memory.peak", "%lu", &mempeak) > 0) {
-			mempeak = humanize(mempeak, &suf);
-			outf("cgroup.mempeak", "%lu%sB", mempeak, suf);
-		} else {
-			outf("cgroup.mempeak", "???");
-		}
-	}
-	{
-		unsigned long pidpeak;
-		if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &pidpeak) > 0)
-			outf("cgroup.pidpeak", "%lu", pidpeak);
-		else
-			outf("cgroup.pidpeak", "???");
-	}
-
+	if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
+		wo->pidpeak = -1;
 }
 
-/* Returns the exit code of pid */
-int monitor(struct timespec *t0, int pid)
+void print_cgroup_res_info(struct cgroup_res_info *res)
 {
-	struct timespec t1;
-	/* struct rusage self; */
-	struct rusage child;
-	int status;
-	int rc;
-	unsigned long rt_usec;
-	unsigned long total_usec;
-	int sfd, epollfd;
-	int timeout = cfg.pollms > 0 ? cfg.pollms: -1;
+	outf(0, "group.usage", "%.3fs", res->usage_usec / 1000000.0);
+	outf(0, "group.user", "%.3fs", res->user_usec / 1000000.0);
+	outf(0, "group.system", "%.3fs", res->system_usec / 1000000.0);
 
-	epollfd = epoll_create(1);
-	if (epollfd < 0)
-		quit("epoll_create");
+	if (res->mempeak > 0) {
+		const char *suf;
+		long mempeak = humanize(res->mempeak, &suf);
+		outf(0, "group.mempeak", "%lu%sB", mempeak, suf);
+	}
+	if (res->pidpeak > 0)
+		outf(0, "group.pidpeak", "%lu", res->pidpeak);
+}
 
+void print_exit_status(int status)
+{
+	int lvl = WIFEXITED(status) ? 1 : 0;
+	outf(lvl, "status", wifstring(status));
 
+	if (WIFEXITED(status)) {
+		outf(lvl, "exitcode", "%i", WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status)) {
+		int sig = WTERMSIG(status);
+		outf(lvl, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
+		outf(lvl, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
+	}
+}
+
+int setup_signalfd()
+{
+	int sfd, rc;
+
+	struct sigaction sa;
+
+	/* prevent SIGCHLDs when child is stopped */
+	sa.sa_handler = SIG_DFL;
+	sa.sa_flags = SA_NOCLDSTOP;
+	sigemptyset(&sa.sa_mask);
+	rc = sigaction(SIGCHLD, &sa, NULL);
+	if (rc < 0)
+		return rc;
+
+	/* set up a signal fd */
 	sigset_t sigmask;
 	sigemptyset(&sigmask);
-	sigaddset(&sigmask, SIGALRM);
 	sigaddset(&sigmask, SIGCHLD);
 
 	rc = sigprocmask(SIG_BLOCK, &sigmask, NULL);
 	if (rc < 0)
-		quit("blocking sigs");
+		return rc;
 
 	sfd = signalfd(-1, &sigmask, SFD_CLOEXEC);
+	return sfd;
+}
+
+int sfd, epfd;
+int timeout;
+
+void prepare_monitor()
+{
+	print_current_time("start");
+	int rc;
+
+	sfd = setup_signalfd();
 	if (sfd < 0)
 		quit("signalfd");
 
+	/* If we will be polling, prime the first poll timestamp */
 	if (cfg.pollms)
 		clock_gettime(CLOCK_MONOTONIC_RAW, &last_poll_ts);
+
+	epfd = epoll_create(1);
+	if (epfd < 0)
+		quit("epoll_create");
 
 	{
 		struct epoll_event ev;
 		ev.events = EPOLLIN;
 		ev.data.fd = sfd;
-		rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev);
+		rc = epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
 		if (rc < 0)
 			quit("epoll_ctl signalfd");
 	}
 
+	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
+}
+
+/* Returns the exit code of pid */
+int wait_monitor(int pid)
+{
 	struct epoll_event ev;
+	unsigned long wall_usec;
+	int status;
+	int rc;
+
 	while (1) {
-		rc = epoll_pwait(epollfd, &ev, 1, timeout, NULL); //&sigmask);
-		if (rc == 0) {
+		rc = epoll_wait(epfd, &ev, 1, timeout);
+		if (rc < 0 && errno == EINTR) {
+			continue;
+		} else if (rc == 0) {
+			assert(cfg.pollms);
 			poll();
 		} else if (ev.data.fd == sfd) {
 			struct signalfd_siginfo si;
@@ -597,46 +680,40 @@ int monitor(struct timespec *t0, int pid)
 				quit("read signal?");
 
 			if (si.ssi_signo == SIGCHLD) {
-				rc = wait4(pid, &status, 0, &child);
-				if (rc < 0)
+				rc = wait4(pid, &status, WNOHANG, NULL);
+				if (rc != pid)
 					quit("wait4");
 				break;
 			} else {
 				assert(!"wtf signal?");
 			}
 		} else {
+			dbg(0, "rc = %i", rc);
+			dbg(0, "fd = %i", ev.data.fd);
 			assert(!"wat???");
 		}
 	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
+	print_current_time("end");
 
-	outf("status", wifstring(status));
+	print_exit_status(status);
 
-	if (WIFEXITED(status)) {
-		outf("exitcode", "%i", WEXITSTATUS(status));
-	} else if (WIFSIGNALED(status)) {
-		int sig = WTERMSIG(status);
-		outf("signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
-		outf("core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
-	}
+	struct cgroup_res_info res;
+	read_cgroup(&res);
+	print_cgroup_res_info(&res);
 
-	/* getrusage(RUSAGE_SELF, &self); */
-	/* struct rusage res = rusage_sub(child, self); */
-	struct rusage res = child;
+	/* TODO: is the getrusage thing useful? */
+	/* struct rusage res = child; */
+	/* outf("root.cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0); */
+	/* outf("root.sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0); */
+	/* outf("root.maxrss", "%liKB", res.ru_maxrss); */
 
-	outf("root.cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0);
-	outf("root.sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0);
-	outf("root.maxrss", "%liKB", res.ru_maxrss);
+	wall_usec = 1000000 * (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1000;
 
-	total_usec  = res.ru_utime.tv_sec * 1000000 + res.ru_utime.tv_usec;
-	total_usec += res.ru_stime.tv_sec * 1000000 + res.ru_stime.tv_usec;
+	outf(0, "walltime", "%.3fs", wall_usec / 1000000.0);
+	outf(0, "loadavg", "%.2f", 1.0f * res.usage_usec / wall_usec);
 
-	rt_usec = 1000000 * (t1.tv_sec - t0->tv_sec) + (t1.tv_nsec - t0->tv_nsec) / 1000;
-	outf("walltime", "%.3fs", rt_usec / 1000000.0);
-	outf("loadavg", "%.2f", (float)total_usec / rt_usec);
-
-	read_cgroup();
 	destroy_cgroup();
 
 	return WEXITSTATUS(status);
@@ -644,76 +721,71 @@ int monitor(struct timespec *t0, int pid)
 
 int exec_and_monitor(int argc, char **argv)
 {
-	struct timespec t0;
 	int pid, rc;
 
 	if (getenv("RAMONROOT")) {
-		dbg(1, "nested under %s", getenv("RAMONROOT"));
 		strcpy(cgroupfs_root, getenv("RAMONROOT"));
 		make_sub_cgroup();
 	} else {
 		find_cgroup_fs();
 		make_new_cgroup();
-		setenv("RAMONROOT", cgroup_path, 1);
+	}
+	setenv("RAMONROOT", cgroup_path, 1);
+	dbg(2, "cgroup is '%s'", cgroup_path);
+
+	if (cfg.verbosity >= 2) {
+		for (int i = 0; i < argc; i++)
+			outf(2, "argv", "%i = %s", i, argv[i]);
 	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
-
-	{
-		int i;
-		for (i = 0; i < argc; i++)
-			outf("argv", "%i = %s", i, argv[i]);
-	}
-
-	{
-		char date[200];
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
-		struct tm *tm;
-		tm = localtime(&tv.tv_sec);
-		strftime(date, sizeof date, "%c", tm);
-		outf("start", "%s", date);
-	}
-
 	pid = fork();
-	/* Child just executes the given command, exit with 127 (standard for
-	 * 'command not found' otherwise. */
 	if (!pid) {
-		/* Put self in fresh cgroup */
-		put_in_cgroup(getpid());
+		/*
+		 * Child just executes the given command, exit with 127
+		 * (standard for * 'command not found' otherwise.
+		 */
 
-		close(cgroup_fd);
+		/* Put self in fresh cgroup */
+		put_in_cgroup();
+
+		/*
+		 * Close outfile if we opened one, we did not use
+		 * O_CLOEXEC for it.
+		 */
 		if (cfg.outfile)
 			fclose(cfg.fout);
 
-		/* TODO: drop privileges */
+		/* TODO: does this really drop privileges? */
 		dbg(2, "getuid() = %i", getuid());
 		setuid(getuid());
 
 		/* Execute given command */
 		execvp(argv[0], argv);
 
-		/* exec failed if we reach here */
+		/* exec() failed if we reach here */
 		perror(argv[0]);
 		exit(127);
 	}
 
-	rc = monitor(&t0, pid);
+	prepare_monitor();
 
-	{
-		char date[200];
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
-		struct tm *tm;
-		tm = localtime(&tv.tv_sec);
-		strftime(date, sizeof date, "%c", tm);
-		outf("end", "%s", date);
-	}
+	outf(1, "childpid", "%lu", pid);
+
+	rc = wait_monitor(pid);
 
 	if (cfg.outfile)
 		fclose(cfg.fout);
 
 	return rc;
+}
+
+FILE *fmkstemps(char *template, int suffixlen)
+{
+	int fd = mkstemps(template, suffixlen);
+	if (fd < 0)
+		return NULL;
+	return fdopen(fd, "w+");
 }
 
 int main(int argc, char **argv)
@@ -725,32 +797,34 @@ int main(int argc, char **argv)
 
 	parse_opts(argc, argv);
 
+	/* Maybe redirect output */
 	if (cfg.outfile) {
 		cfg.fout = fopen(cfg.outfile, "w");
 		if (!cfg.fout)
-			quit("fopen");
+			quit(cfg.outfile);
 	} else if (cfg.save) {
-		char temp[] = "XXXXXX.runlim";
-		int fd = mkstemps(temp, 7);
-		if (fd < 0)
-			quit("mkstemp");
-		cfg.fout = fdopen(fd, "w");
+		char temp[] = "XXXXXX.ramon";
+		cfg.fout = fmkstemps(temp, 6);
 		if (!cfg.fout)
-			quit("fdopen");
+			quit("could not create save file %s", temp);
+		dbg(1, "Saving output to %s", temp);
 	}
 
 	/* Tally mode: just parse a cgroup dir and exit,
 	 * no running anything. */
 	if (cfg.tally) {
-		cgroup_fd = open(cfg.tally, O_DIRECTORY);
+		cgroup_fd = open(cfg.tally, O_DIRECTORY | O_CLOEXEC);
 		if (cgroup_fd < 0)
 			quit("open cgroup dir");
-		read_cgroup();
+		struct cgroup_res_info res;
+		read_cgroup(&res);
+		print_cgroup_res_info(&res);
 		exit(0);
 	}
 
 	if (optind == argc) {
-		usage();
+		fprintf(stderr, "%s: no command given\n", argv[0]);
+		help(argv[0]);
 		exit(1);
 	}
 
