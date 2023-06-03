@@ -466,28 +466,19 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 
 unsigned long last_poll_usage;
 struct timespec last_poll_ts = {0};
-bool should_poll = false;
+/* bool should_poll = false; */
+
+/* void sa_poll(int sig __attribute__((unused))) */
+/* { */
+/*         should_poll = true; */
+/* } */
 
 void sa_poll(int sig __attribute__((unused)))
-{
-	should_poll = true;
-}
-
-void poll()
 {
 	struct timespec ts;
 	unsigned long delta_us;
 	unsigned long usage;
 
-	/* unsigned long user; */
-	/* unsigned long system; */
-
-	struct kvfmt cpukeys[] = {
-		{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-		/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
-		/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
-	};
-	open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
 	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
 
 	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
@@ -498,7 +489,15 @@ void poll()
 	if (delta_us == 0)
 		return;
 
-	outf("delta_us", "%lu", delta_us);
+	/* unsigned long user; */
+	/* unsigned long system; */
+
+	struct kvfmt cpukeys[] = {
+		{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
+		/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
+		/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
+	};
+	open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
 
 	outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
 	outf("poll.load", "%.2f", 1.0 * (usage - last_poll_usage) / delta_us);
@@ -547,6 +546,14 @@ void read_cgroup()
 
 }
 
+void set_poll_handler()
+{
+	struct sigaction sa = {0};
+	sa.sa_handler = sa_poll;
+	//sa.sa_flags = SA_RESETHAND; /* trigger only once until re-enabled */
+	sigaction(SIGALRM, &sa, NULL);
+}
+
 /* Returns the exit code of pid */
 int monitor(struct timespec *t0, int pid)
 {
@@ -570,23 +577,27 @@ int monitor(struct timespec *t0, int pid)
 		itv.it_interval = tv;
 		itv.it_value    = tv;
 
-		struct sigaction sa = {0};
-		sa.sa_handler = sa_poll;
-
-		sigaction(SIGALRM, &sa, NULL);
-
 		clock_gettime(CLOCK_MONOTONIC_RAW, &last_poll_ts);
+		set_poll_handler();
 		setitimer(ITIMER_REAL, &itv, NULL);
 	}
 
 wait_again:
 	rc = wait4(pid, &status, 0, &child);
 	if (rc < 0 && errno == EINTR) {
-		if (should_poll)
-			poll();
+		set_poll_handler();
 		goto wait_again;
 	} else if (rc < 0) {
 		quit("wait4");
+	}
+
+	if (cfg.pollms) {
+		struct itimerval itv;
+		itv.it_interval.tv_sec = 0;
+		itv.it_interval.tv_usec = 0;
+		itv.it_value.tv_sec = 0;
+		itv.it_value.tv_usec = 0;
+		setitimer(ITIMER_REAL, &itv, NULL);
 	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
