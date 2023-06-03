@@ -15,9 +15,11 @@
 #include <sys/epoll.h>
 #include <sys/resource.h>
 #include <sys/signalfd.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -32,6 +34,7 @@ struct cfg {
 	int verbosity;
 	bool save; /* save to a fresh file */
 	int pollms;
+	char *notify;
 };
 
 /* Global config state */
@@ -44,6 +47,7 @@ struct cfg cfg = {
 	.debug_level = 1,
 	.verbosity = 1, /* TODO: choose defaults. */
 	.pollms = 0,
+	.notify = NULL,
 };
 
 struct cgroup_res_info
@@ -66,6 +70,10 @@ char cgroup_path[PATH_MAX];
 struct timespec t0, t1;
 
 int childpid;
+
+int sock_up = -1;
+int sock_down = -1;
+char sock_down_path[PATH_MAX];
 
 void quit(const char *fmt, ...)
 {
@@ -99,7 +107,7 @@ void __dbg(const char *fmt, ...)
 {
 	va_list va;
 
-	fprintf(stderr, "DEBUG: ramon: ");
+	fprintf(stderr, "DEBUG: ramon %i: ", getpid());
 
 	va_start(va, fmt);
 	vfprintf(stderr, fmt, va);
@@ -111,7 +119,7 @@ void __dbg(const char *fmt, ...)
 	do {					\
 		if (cfg.debug_level >= n)	\
 			__dbg(__VA_ARGS__);	\
-	} while(0);
+	} while(0)
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 {
@@ -132,6 +140,7 @@ const struct option longopts[] = {
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
 	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
+	{ .name = "notify",       .has_arg = required_argument, .flag = NULL, .val = 'n' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -199,6 +208,10 @@ void parse_opts(int argc, char **argv)
 			help(argv[0]);
 			exit(0);
 
+		case 'n':
+			cfg.notify = optarg;
+			break;
+
 		case -1:
 			return;
 
@@ -226,7 +239,7 @@ void __outf(const char *key, const char *fmt, ...)
 	do {					\
 		if (cfg.verbosity >= n)		\
 			__outf(__VA_ARGS__);	\
-	} while(0);
+	} while(0)
 
 const char *wifstring(int status)
 {
@@ -297,7 +310,7 @@ void make_new_cgroup()
 }
 
 /* Make a cgroup under the current one */
-void make_sub_cgroup()
+void make_sub_cgroup(const char *ramonroot)
 {
 	/* char buf[PATH_MAX]; */
 	char buf2[PATH_MAX];
@@ -319,7 +332,7 @@ void make_sub_cgroup()
 	char *q = buf2;
 	/* q = stpcpy(q, cgroupfs_root); */
 	/* q = stpcpy(q, buf); */
-	q = stpcpy(q, getenv("RAMONROOT"));
+	q = stpcpy(q, ramonroot);
 	q = stpcpy(q, "/ramon_XXXXXX");
 	char *p = mkdtemp(buf2);
 	if (!p)
@@ -493,33 +506,51 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 	return rc;
 }
 
-void print_current_time(const char *key)
+/* returns statically allocated string in glibc */
+char *str_of_current_time()
 {
 	struct timeval tv;
-	int rc;
+	char *date;
+	int i, rc;
 
 	rc = gettimeofday(&tv, NULL);
 	if (rc < 0)
-		goto fail;
+		return NULL;
 
-	char *date = ctime(&tv.tv_sec);
+	date = ctime(&tv.tv_sec);
 	if (!date)
-		goto fail;
+		return NULL;
 
 	/* remove trailing newline */
-	int i = strlen(date);
+	i = strlen(date);
 	if (i > 0 && date[i-1] == '\n')
 		date[i-1] = 0;
 
-	outf(1, key, "%s", date);
-	return;
+	return date;
+}
 
-fail:
-	outf(1, key, "unknown (%s)", strerror(errno));
+void print_current_time(const char *key)
+{
+	char *date = str_of_current_time();
+
+	if (date)
+		outf(1, key, "%s", date);
+	else
+		outf(1, key, "unknown (%s)", strerror(errno));
 }
 
 unsigned long last_poll_usage;
 struct timespec last_poll_ts = {0};
+
+long wall_us()
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
+	return  1000000 * (ts.tv_sec - t0.tv_sec) +
+		(ts.tv_nsec - t0.tv_nsec) / 1000;
+}
 
 void poll()
 {
@@ -685,6 +716,7 @@ void prepare_monitor()
 	if (epfd < 0)
 		quit("epoll_create");
 
+	/* signalfd */
 	{
 		struct epoll_event ev;
 		ev.events = EPOLLIN;
@@ -692,6 +724,17 @@ void prepare_monitor()
 		rc = epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
 		if (rc < 0)
 			quit("epoll_ctl signalfd");
+	}
+
+	/* sock down */
+	if (sock_down >= 0)
+	{
+		struct epoll_event ev;
+		ev.events = EPOLLIN;
+		ev.data.fd = sock_down;
+		rc = epoll_ctl(epfd, EPOLL_CTL_ADD, sock_down, &ev);
+		if (rc < 0)
+			quit("epoll_ctl sock_down");
 	}
 
 	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
@@ -704,6 +747,10 @@ int wait_monitor(int pid)
 	unsigned long wall_usec;
 	int status;
 	int rc;
+
+	dbg(2, "entering event loop");
+	dbg(2, "sock_down = %i", sock_down);
+	dbg(2, "sock_up = %i", sock_up);
 
 	while (1) {
 		rc = epoll_wait(epfd, &ev, 1, timeout);
@@ -726,10 +773,31 @@ int wait_monitor(int pid)
 			} else {
 				assert(!"wtf signal?");
 			}
+		} else if (ev.data.fd == sock_down) {
+			int fd = accept(sock_down, NULL, NULL);
+			if (fd < 0)
+				quit("accept???");
+
+			dbg(0, "accepted conn,fd = %i", fd);
+
+			struct epoll_event ev;
+			ev.events = EPOLLIN;
+			ev.data.fd = fd;
+			rc = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+			if (rc < 0)
+				quit("epoll_ctl client");
 		} else {
-			dbg(0, "rc = %i", rc);
-			dbg(0, "fd = %i", ev.data.fd);
-			assert(!"wat???");
+			/* must be a client socket writing */
+			if (ev.events & EPOLLIN) {
+				char buf[200];
+				int rc = read(ev.data.fd, buf, sizeof buf - 1);
+				if (rc > 0) {
+					buf[rc] = 0;
+					outf(0, "mark", "str=%s wall=%.3fs", buf, wall_us() / 1000000.0);
+				}
+			}
+			if (ev.events & EPOLLHUP)
+				close(ev.data.fd);
 		}
 	}
 
@@ -758,19 +826,106 @@ int wait_monitor(int pid)
 	return WEXITSTATUS(status);
 }
 
+void setup_sock_down()
+{
+	char *sockname;
+	int s;
+	int rc;
+	struct sockaddr_un addr;
+
+	sockname = tempnam("/tmp", "ramon");
+	/* FIXME: somewhere else? */
+	if (!sockname)
+		quit("tempnam");
+
+	s = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (s < 0)
+		quit("socket");
+
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, sockname, 108);
+
+	rc = bind(s, &addr, sizeof addr);
+	if (rc < 0)
+		quit("bind");
+
+	rc = listen(s, 10);
+	if (rc < 0)
+		quit("listen");
+
+	dbg(2, "sockname = %s", sockname);
+	strcpy(sock_down_path, sockname);
+	setenv("RAMONSOCK", sockname, 1);
+	sock_down = s;
+
+	free(sockname);
+}
+
+void connect_to_upstream()
+{
+	const char *up_path = getenv("RAMONSOCK");
+	struct sockaddr_un addr;
+	int rc;
+	int s;
+
+	if (!up_path)
+		quit("RAMOMSOCK unset; not a nested invocation?");
+
+	s = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (s < 0)
+		quit("socket");
+
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, up_path, 108);
+
+	rc = connect(s, &addr, sizeof addr);
+	if (rc < 0)
+		quit("connect up");
+
+	sock_up = s;
+}
+
+void setup()
+{
+	const char *e_ramonroot = getenv("RAMONROOT");
+
+	if (!e_ramonroot) {
+		/*
+		 * Fresh invocation: create a fresh cgroup, and open a socket
+		 * to listen for subinvocations. Expose the socket via an environment
+		 * variable.
+		 */
+		find_cgroup_fs();
+		make_new_cgroup();
+	} else {
+		/* subinvocation, nest within the root and connect */
+		strcpy(cgroupfs_root, e_ramonroot);
+		make_sub_cgroup(e_ramonroot);
+		connect_to_upstream();
+	}
+	/*
+	 * Re-set the root, even if we are subinvocation: messages are
+	 * passed upwards.
+	 */
+	setenv("RAMONROOT", cgroup_path, 1);
+	dbg(2, "cgroup is '%s'", cgroup_path);
+	setup_sock_down();
+}
+
+void notify_up(const char *msg)
+{
+	int rc;
+	if (sock_up < 0)
+		quit("sock_up unset");
+
+	rc = write(sock_up, msg, strlen(msg));
+	if (rc < (int)strlen(msg))
+		quit("notify");
+}
+
 int exec_and_monitor(int argc, char **argv)
 {
 	int pid, rc;
-
-	if (getenv("RAMONROOT")) {
-		strcpy(cgroupfs_root, getenv("RAMONROOT"));
-		make_sub_cgroup();
-	} else {
-		find_cgroup_fs();
-		make_new_cgroup();
-	}
-	setenv("RAMONROOT", cgroup_path, 1);
-	dbg(2, "cgroup is '%s'", cgroup_path);
 
 	if (cfg.verbosity >= 2) {
 		for (int i = 0; i < argc; i++)
@@ -817,6 +972,12 @@ int exec_and_monitor(int argc, char **argv)
 	if (cfg.outfile)
 		fclose(cfg.fout);
 
+	close(sock_down);
+	dbg(2, "sock_down_path = %s", sock_down_path);
+	int x = unlink(sock_down_path);
+	if (x < 0)
+		quit("unlink");
+
 	return rc;
 }
 
@@ -836,6 +997,8 @@ int main(int argc, char **argv)
 	cfg.fout = stderr;
 
 	parse_opts(argc, argv);
+
+	dbg(3, "TMP_MAX = %i", TMP_MAX);
 
 	/* Maybe redirect output */
 	if (cfg.outfile) {
@@ -862,11 +1025,19 @@ int main(int argc, char **argv)
 		exit(0);
 	}
 
+	if (cfg.notify) {
+		connect_to_upstream();
+		notify_up(cfg.notify);
+		return 0;
+	}
+
 	if (optind == argc) {
 		fprintf(stderr, "%s: no command given\n", argv[0]);
 		help(argv[0]);
 		exit(1);
 	}
+
+	setup();
 
 	rc = exec_and_monitor(argc - optind, argv + optind);
 
