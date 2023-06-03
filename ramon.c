@@ -524,10 +524,13 @@ struct timespec last_poll_ts = {0};
 void poll()
 {
 	struct timespec ts;
-	unsigned long delta_us;
-	unsigned long usage;
+	unsigned long delta_us, wall_us;
+	unsigned long usage, user, system;
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
+	wall_us = 1000000 * (ts.tv_sec - t0.tv_sec) +
+			(ts.tv_nsec - t0.tv_nsec) / 1000;
 
 	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
 			(ts.tv_nsec - last_poll_ts.tv_nsec) / 1000;
@@ -537,23 +540,23 @@ void poll()
 	if (delta_us == 0)
 		return;
 
-	/* unsigned long user; */
-	/* unsigned long system; */
-
 	struct kvfmt cpukeys[] = {
 		{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-		/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
-		/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
+		{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
+		{ .key = "system_usec", .fmt = "%lu", .wo = &system },
 	};
-	open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
+	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
-	outf(0, "poll.group.usage", "%.3fs", usage / 1000000.0);
-	outf(0, "poll.load", "%.2f", 1.0 * (usage - last_poll_usage) / delta_us);
-	/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
-	/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
+	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs load=%.2f",
+			wall_us / 1000000.0,
+			usage / 1000000.0,
+			user / 1000000.0,
+			system / 1000000.0,
+			1.0 * (usage - last_poll_usage) / delta_us);
+	fflush(cfg.fout);
+
 	last_poll_usage = usage;
 	last_poll_ts = ts;
-	fflush(cfg.fout);
 }
 
 void read_cgroup(struct cgroup_res_info *wo)
