@@ -539,9 +539,6 @@ void print_current_time(const char *key)
 		outf(1, key, "unknown (%s)", strerror(errno));
 }
 
-unsigned long last_poll_usage;
-struct timespec last_poll_ts = {0};
-
 long wall_us()
 {
 	struct timespec ts;
@@ -550,44 +547,6 @@ long wall_us()
 
 	return  1000000 * (ts.tv_sec - t0.tv_sec) +
 		(ts.tv_nsec - t0.tv_nsec) / 1000;
-}
-
-void poll()
-{
-	struct timespec ts;
-	unsigned long delta_us, wall_us;
-	unsigned long usage, user, system;
-
-	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-
-	wall_us = 1000000 * (ts.tv_sec - t0.tv_sec) +
-			(ts.tv_nsec - t0.tv_nsec) / 1000;
-
-	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
-			(ts.tv_nsec - last_poll_ts.tv_nsec) / 1000;
-
-	/* If we are somehow woken up less than 1 microsecond
-	 * after the last time, just skip this measurement. */
-	if (delta_us == 0)
-		return;
-
-	struct kvfmt cpukeys[] = {
-		{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-		{ .key = "user_usec",   .fmt = "%lu", .wo = &user   },
-		{ .key = "system_usec", .fmt = "%lu", .wo = &system },
-	};
-	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
-
-	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs load=%.2f",
-			wall_us / 1000000.0,
-			usage / 1000000.0,
-			user / 1000000.0,
-			system / 1000000.0,
-			1.0 * (usage - last_poll_usage) / delta_us);
-	fflush(cfg.fout);
-
-	last_poll_usage = usage;
-	last_poll_ts = ts;
 }
 
 void read_cgroup(struct cgroup_res_info *wo)
@@ -620,6 +579,44 @@ void print_cgroup_res_info(struct cgroup_res_info *res)
 	if (res->pidpeak > 0)
 		outf(0, "group.pidpeak", "%lu", res->pidpeak);
 }
+
+struct timespec last_poll_ts = {0};
+void poll()
+{
+	static unsigned long last_poll_usage;
+	struct timespec ts;
+	struct cgroup_res_info res;
+	unsigned long delta_us, wall_us;
+
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
+	/* absolute */
+	wall_us = 1000000 * (ts.tv_sec - t0.tv_sec) +
+			(ts.tv_nsec - t0.tv_nsec) / 1000;
+
+	/* relative to last measure */
+	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
+			(ts.tv_nsec - last_poll_ts.tv_nsec) / 1000;
+
+	/* If we are somehow woken up less than 1 microsecond
+	 * after the last time, just skip this measurement. */
+	if (delta_us == 0)
+		return;
+
+	read_cgroup(&res);
+
+	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs load=%.2f",
+			wall_us / 1000000.0,
+			res.usage_usec / 1000000.0,
+			res.user_usec / 1000000.0,
+			res.system_usec / 1000000.0,
+			1.0 * (res.usage_usec - last_poll_usage) / delta_us);
+	fflush(cfg.fout);
+
+	last_poll_usage = res.usage_usec;
+	last_poll_ts = ts;
+}
+
 
 void print_exit_status(int status)
 {
