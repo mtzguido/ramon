@@ -465,6 +465,7 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 }
 
 unsigned long last_poll_usage;
+struct timespec last_poll_ts = {0};
 bool should_poll = false;
 
 void sa_poll(int sig __attribute__((unused)))
@@ -474,23 +475,38 @@ void sa_poll(int sig __attribute__((unused)))
 
 void poll()
 {
-	{
-		unsigned long usage;
-		/* unsigned long user; */
-		/* unsigned long system; */
-		struct kvfmt cpukeys[] = {
-			{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
-			/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
-			/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
-		};
-		open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
-		outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
-		outf("poll.load", "%.2f", (usage - last_poll_usage) / (1000.0 * cfg.pollms));
-		/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
-		/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
-		last_poll_usage = usage;
-		fflush(cfg.fout);
-	}
+	struct timespec ts;
+	unsigned long delta_us;
+	unsigned long usage;
+
+	/* unsigned long user; */
+	/* unsigned long system; */
+
+	struct kvfmt cpukeys[] = {
+		{ .key = "usage_usec",  .fmt = "%lu", .wo = &usage  },
+		/* { .key = "user_usec",   .fmt = "%lu", .wo = &user   }, */
+		/* { .key = "system_usec", .fmt = "%lu", .wo = &system }, */
+	};
+	open_and_read_kvs(cgroup_fd, "cpu.stat", 1, cpukeys);
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+
+	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
+			(ts.tv_nsec - last_poll_ts.tv_nsec) / 1000;
+
+	/* If we are somehow woken up less than 1 microsecond
+	 * after the last time, just skip this measurement. */
+	if (delta_us == 0)
+		return;
+
+	outf("delta_us", "%lu", delta_us);
+
+	outf("poll.cgroup.usage", "%.3fs", usage / 1000000.0);
+	outf("poll.load", "%.2f", 1.0 * (usage - last_poll_usage) / delta_us);
+	/* outf("poll.cgroup.user", "%.3fs", user / 1000000.0); */
+	/* outf("poll.cgroup.system", "%.3fs", system/ 1000000.0); */
+	last_poll_usage = usage;
+	last_poll_ts = ts;
+	fflush(cfg.fout);
 }
 
 void read_cgroup()
@@ -549,6 +565,7 @@ int monitor(struct timespec *t0, int pid)
 		tv.tv_sec = pollms / 1000;
 		pollms %= 1000;
 		tv.tv_usec = pollms * 1000;
+		/* TODO: block reentrancy */
 
 		itv.it_interval = tv;
 		itv.it_value    = tv;
@@ -558,6 +575,7 @@ int monitor(struct timespec *t0, int pid)
 
 		sigaction(SIGALRM, &sa, NULL);
 
+		clock_gettime(CLOCK_MONOTONIC_RAW, &last_poll_ts);
 		setitimer(ITIMER_REAL, &itv, NULL);
 	}
 
