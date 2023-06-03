@@ -65,6 +65,8 @@ char cgroup_path[PATH_MAX];
 /* start and finish timestamps of subprocess */
 struct timespec t0, t1;
 
+int childpid;
+
 void quit(const char *fmt, ...)
 {
 	va_list va;
@@ -599,6 +601,29 @@ void print_exit_status(int status)
 	}
 }
 
+void sigint(int sig)
+{
+	/* Ignore 3 signals */
+	const int lim = 3;
+	static int cnt = 0;
+
+	if (sig != SIGINT && sig != SIGTERM) {
+		warn("sigint!!!");
+		return;
+	}
+
+	kill(childpid, sig);
+
+	if (++cnt >= lim) {
+		struct sigaction sa;
+		sa.sa_handler = SIG_DFL;
+		sa.sa_flags = 0;
+		sigemptyset(&sa.sa_mask);
+
+		sigaction(sig, &sa, NULL);
+	}
+}
+
 int setup_signalfd()
 {
 	int sfd, rc;
@@ -610,6 +635,17 @@ int setup_signalfd()
 	sa.sa_flags = SA_NOCLDSTOP;
 	sigemptyset(&sa.sa_mask);
 	rc = sigaction(SIGCHLD, &sa, NULL);
+	if (rc < 0)
+		return rc;
+
+	/* handle SIGINT and SIGTERM so we can survive it */
+	sa.sa_handler = sigint;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+	rc = sigaction(SIGINT, &sa, NULL);
+	if (rc < 0)
+		return rc;
+	rc = sigaction(SIGTERM, &sa, NULL);
 	if (rc < 0)
 		return rc;
 
@@ -770,6 +806,7 @@ int exec_and_monitor(int argc, char **argv)
 
 	prepare_monitor();
 
+	childpid = pid;
 	outf(1, "childpid", "%lu", pid);
 
 	rc = wait_monitor(pid);
