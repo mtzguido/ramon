@@ -8,6 +8,8 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <fcntl.h>
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -466,14 +468,8 @@ int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *
 
 unsigned long last_poll_usage;
 struct timespec last_poll_ts = {0};
-/* bool should_poll = false; */
 
-/* void sa_poll(int sig __attribute__((unused))) */
-/* { */
-/*         should_poll = true; */
-/* } */
-
-void sa_poll(int sig __attribute__((unused)))
+void poll()
 {
 	struct timespec ts;
 	unsigned long delta_us;
@@ -546,14 +542,6 @@ void read_cgroup()
 
 }
 
-void set_poll_handler()
-{
-	struct sigaction sa = {0};
-	sa.sa_handler = sa_poll;
-	//sa.sa_flags = SA_RESETHAND; /* trigger only once until re-enabled */
-	sigaction(SIGALRM, &sa, NULL);
-}
-
 /* Returns the exit code of pid */
 int monitor(struct timespec *t0, int pid)
 {
@@ -564,40 +552,61 @@ int monitor(struct timespec *t0, int pid)
 	int rc;
 	unsigned long rt_usec;
 	unsigned long total_usec;
+	int sfd, epollfd;
+	int timeout = cfg.pollms > 0 ? cfg.pollms: -1;
 
-	if (cfg.pollms > 0) {
-		struct timeval tv;
-		struct itimerval itv;
-		int pollms = cfg.pollms;
-		tv.tv_sec = pollms / 1000;
-		pollms %= 1000;
-		tv.tv_usec = pollms * 1000;
-		/* TODO: block reentrancy */
+	epollfd = epoll_create(1);
+	if (epollfd < 0)
+		quit("epoll_create");
 
-		itv.it_interval = tv;
-		itv.it_value    = tv;
 
+	sigset_t sigmask;
+	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGALRM);
+	sigaddset(&sigmask, SIGCHLD);
+
+	rc = sigprocmask(SIG_BLOCK, &sigmask, NULL);
+	if (rc < 0)
+		quit("blocking sigs");
+
+	sfd = signalfd(-1, &sigmask, SFD_CLOEXEC);
+	if (sfd < 0)
+		quit("signalfd");
+
+	if (cfg.pollms)
 		clock_gettime(CLOCK_MONOTONIC_RAW, &last_poll_ts);
-		set_poll_handler();
-		setitimer(ITIMER_REAL, &itv, NULL);
+
+	{
+		struct epoll_event ev;
+		ev.events = EPOLLIN;
+		ev.data.fd = sfd;
+		rc = epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev);
+		if (rc < 0)
+			quit("epoll_ctl signalfd");
 	}
 
-wait_again:
-	rc = wait4(pid, &status, 0, &child);
-	if (rc < 0 && errno == EINTR) {
-		set_poll_handler();
-		goto wait_again;
-	} else if (rc < 0) {
-		quit("wait4");
-	}
+	struct epoll_event ev;
+	while (1) {
+		rc = epoll_pwait(epollfd, &ev, 1, timeout, NULL); //&sigmask);
+		if (rc == 0) {
+			poll();
+		} else if (ev.data.fd == sfd) {
+			struct signalfd_siginfo si;
+			rc = read (sfd, &si, sizeof si);
+			if (rc != sizeof si)
+				quit("read signal?");
 
-	if (cfg.pollms) {
-		struct itimerval itv;
-		itv.it_interval.tv_sec = 0;
-		itv.it_interval.tv_usec = 0;
-		itv.it_value.tv_sec = 0;
-		itv.it_value.tv_usec = 0;
-		setitimer(ITIMER_REAL, &itv, NULL);
+			if (si.ssi_signo == SIGCHLD) {
+				rc = wait4(pid, &status, 0, &child);
+				if (rc < 0)
+					quit("wait4");
+				break;
+			} else {
+				assert(!"wtf signal?");
+			}
+		} else {
+			assert(!"wat???");
+		}
 	}
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
