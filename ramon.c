@@ -407,9 +407,10 @@ int read_kvs(FILE *f, int nk, struct kvfmt kvs[])
 {
 	char key[256]; // review
 	int n = 0;
+	int rem = nk;
 	int i;
 
-	while (!feof(f)) {
+	while (!feof(f) && rem > 0) {
 		if (1 != fscanf(f, "%s", key))
 			return n;
 
@@ -421,6 +422,7 @@ int read_kvs(FILE *f, int nk, struct kvfmt kvs[])
 				warn("scan failed for %s", key);
 			}
 			n++;
+			rem--;
 			break;
 		}
 		/* no match, skip line */
