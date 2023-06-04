@@ -1017,7 +1017,6 @@ int exec_and_monitor(int argc, char **argv)
 		fclose(cfg.fout);
 
 	close(sock_down);
-	dbg(2, "sock_down_path = %s", sock_down_path);
 	int x = unlink(sock_down_path);
 	if (x < 0)
 		quit("unlink");
