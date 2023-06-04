@@ -72,7 +72,7 @@ def plot(fn, loads, mems, marks):
 
     plt.xlabel("Wall clock time")
     plt.ylabel("Load")
-    
+
     plt.title("Load average across time")
 
     imagefn = fn + ".png"
@@ -104,7 +104,7 @@ main()
 
 # TODO
 # - Use fill graph
-# - show subinvocation as stacked area 
+# - show subinvocation as stacked area
 # - better mark handling
 # - SVG? PDF? Allow to zoom.
 # - Soften?
