@@ -26,6 +26,7 @@ def load_file(fn):
 def plot(fn, loads, marks):
     import matplotlib.pyplot as plt
     import numpy as np
+    from math import ceil
 
     x_axis = []
     y_axis = []
@@ -33,21 +34,32 @@ def plot(fn, loads, marks):
         x_axis.append(t)
         y_axis.append(loads[t])
 
-    plt.plot(x_axis, y_axis)
+    maxx = ceil(max(loads.keys()))
+    maxy = ceil(max(loads.values()))
+    nmarks = len(marks.keys())
+    print("maxx = {}".format(maxx));
+    print("maxy = {}".format(maxy));
+    print("nmarks = {}".format(nmarks));
+
+    plt.fill_between(x_axis, 0, y_axis)
 
     lasttime = -10
     lasty = 0
+    marki = 0
     for tag in marks.keys():
         time = marks[tag]
-        if (lasttime + 50 >= time):
-            y = lasty - 2
-        else:
-            y = 0
-        plt.vlines(time, -5, 29, colors='C1', label=tag, linestyles='dashed');
-        plt.text(time, y, tag, rotation=45, size='smaller')
-        lasttime = time
-        lasty = y
+        #  if (lasttime + 50 >= time):
+        #      y = lasty - 2
+        #  else:
+        #      y = 0
+        y = (nmarks - marki) / nmarks * maxy
+        plt.vlines(time, 0, maxy, colors='C1', label=tag, linestyles='dashed', linewidth=0.3);
+        plt.text(time, y, tag, rotation=45, size=4)
+        #  lasttime = time
+        #  lasty = y
+        marki = 1 + marki
     #plt.legend()
+    plt.hlines(range(1+maxy), 0, maxx, colors='gray', linestyles='solid', alpha=0.5, linewidth=0.3);
 
     plt.xlabel("Wall clock time")
     plt.ylabel("Load")
@@ -55,7 +67,7 @@ def plot(fn, loads, marks):
     plt.title("Load average across time")
 
     imagefn = fn + ".png"
-    plt.savefig(imagefn, dpi=500)
+    plt.savefig(imagefn, dpi=600)
     print("Saved image in {}".format(imagefn))
 
 def main():
