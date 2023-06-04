@@ -78,20 +78,26 @@ def plot(fn, loads, mems, marks):
     imagefn = fn + ".png"
     plt.savefig(imagefn)
     print("Saved image in {}".format(imagefn))
+    return imagefn
 
 def main():
+    import os
     import sys
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("file", help="ramon output with --poll")
+    parser.add_argument("--open", action="store_true", help="open the generated image")
     args = parser.parse_args()
 
     file = args.file
 
     loads, mems, marks = load_file(file)
 
-    plot(file, loads, mems, marks)
+    img = plot(file, loads, mems, marks)
+
+    if args.open:
+        os.system("xdg-open " + img)
 
 main()
 
