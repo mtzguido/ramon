@@ -930,7 +930,7 @@ void setup()
 	}
 	/*
 	 * Re-set the root, even if we are subinvocation: messages are
-	 * passed upwards.
+	 * passed upwards (TODO!).
 	 */
 	setenv("RAMONROOT", cgroup_path, 1);
 	dbg(2, "cgroup is '%s'", cgroup_path);
