@@ -35,6 +35,7 @@ struct cfg {
 	bool save; /* save to a fresh file */
 	int pollms;
 	char *notify;
+	bool render;
 };
 
 /* Global config state */
@@ -48,6 +49,7 @@ struct cfg cfg = {
 	.verbosity = 1, /* TODO: choose defaults. */
 	.pollms = 0,
 	.notify = NULL,
+	.render = false,
 };
 
 struct cgroup_res_info
@@ -133,14 +135,15 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
-	{ .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap
-	{ .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' },
+	/* { .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap */
+	/* { .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' }, */
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
 	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
 	{ .name = "notify",       .has_arg = required_argument, .flag = NULL, .val = 'n' },
+	{ .name = "render",       .has_arg = no_argument,       .flag = NULL, .val = 'r' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -166,15 +169,15 @@ void parse_opts(int argc, char **argv)
 			cfg.tally = optarg;
 			break;
 
-		case 'r':
-			warn("ignored");
-			cfg.recursive = true;
-			break;
+		/* case 'r': */
+		/*         warn("ignored"); */
+		/*         cfg.recursive = true; */
+		/*         break; */
 
-		case '1':
-			warn("ignored");
-			cfg.recursive = false;
-			break;
+		/* case '1': */
+		/*         warn("ignored"); */
+		/*         cfg.recursive = false; */
+		/*         break; */
 
 		case 'k':
 			cfg.keep = true;
@@ -210,6 +213,10 @@ void parse_opts(int argc, char **argv)
 
 		case 'n':
 			cfg.notify = optarg;
+			break;
+
+		case 'r':
+			cfg.render = true;
 			break;
 
 		case -1:
@@ -1035,6 +1042,16 @@ int main(int argc, char **argv)
 	setup();
 
 	rc = exec_and_monitor(argc - optind, argv + optind);
+
+	if (cfg.render) {
+		if (!cfg.outfile) {
+			warn("An output file is needed to use --render");
+		} else {
+			char cmd[500];
+			snprintf(cmd, 500, "ramon-render.py %s", cfg.outfile);
+			system(cmd);
+		}
+	}
 
 	return rc;
 }
