@@ -26,7 +26,7 @@ def load_file(fn):
 
     return loads, mems, marks
 
-def plot(fn, loads, mem, marks):
+def plot(fn, loads, mems, marks):
     import matplotlib.pyplot as plt
     import numpy as np
     from math import ceil
@@ -39,17 +39,18 @@ def plot(fn, loads, mem, marks):
     for t in loads.keys():
         x_axis.append(t)
         y_axis.append(loads[t])
-        y2_axis.append(mem[t] / 1000000000)
+        y2_axis.append(mems[t] / 1000000000)
 
     maxx = ceil(max(loads.keys(), default=1))
     maxy = ceil(max(loads.values(), default=1))
+    maxy = ceil(max(maxy, ceil(max(mems.values(), default=1)) / 1000000000))
     nmarks = len(marks.keys())
     print("maxx = {}".format(maxx));
     print("maxy = {}".format(maxy));
     print("nmarks = {}".format(nmarks));
 
     plt.fill_between(x_axis, 0, y_axis)
-    plt.plot(x_axis, y2_axis, color='C2')
+    plt.plot(x_axis, y2_axis, color='C2', linewidth=0.5)
 
     lasttime = -10
     lasty = 0
@@ -88,9 +89,9 @@ def main():
 
     file = args.file
 
-    loads, mem, marks = load_file(file)
+    loads, mems, marks = load_file(file)
 
-    plot(file, loads, mem, marks)
+    plot(file, loads, mems, marks)
 
 main()
 
