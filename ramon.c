@@ -741,6 +741,13 @@ void prepare_monitor()
 	}
 }
 
+static inline
+int timediff_ms(struct timespec *t1, struct timespec *t2)
+{
+	return 1000 * (t2->tv_sec - t1->tv_sec) +
+		(t2->tv_nsec - t1->tv_nsec) / 1000000;
+}
+
 /* Returns the exit code of pid */
 int wait_monitor(int pid)
 {
@@ -750,14 +757,23 @@ int wait_monitor(int pid)
 	int status;
 	int rc;
 
+	struct timespec tep0, tep;
+
 	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
 
 	dbg(2, "entering event loop");
 	dbg(2, "sock_down = %i", sock_down);
 	dbg(2, "sock_up = %i", sock_up);
 
+	clock_gettime(CLOCK_MONOTONIC_RAW, &tep0);
 	while (1) {
+		clock_gettime(CLOCK_MONOTONIC_RAW, &tep);
+
+		/* try to hit a multiple of cfg.pollms */
+		timeout = cfg.pollms - timediff_ms(&tep0, &tep) % cfg.pollms;
+
 		rc = epoll_wait(epfd, &ev, 1, timeout);
+
 		if (rc < 0 && errno == EINTR) {
 			continue;
 		} else if (rc == 0) {
