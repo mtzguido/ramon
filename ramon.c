@@ -701,7 +701,6 @@ int setup_signalfd()
 }
 
 int sfd, epfd;
-int timeout;
 
 void prepare_monitor()
 {
@@ -740,8 +739,6 @@ void prepare_monitor()
 		if (rc < 0)
 			quit("epoll_ctl sock_down");
 	}
-
-	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
 }
 
 /* Returns the exit code of pid */
@@ -749,8 +746,11 @@ int wait_monitor(int pid)
 {
 	struct epoll_event ev;
 	unsigned long wall_usec;
+	int timeout;
 	int status;
 	int rc;
+
+	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
 
 	dbg(2, "entering event loop");
 	dbg(2, "sock_down = %i", sock_down);
