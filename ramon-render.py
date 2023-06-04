@@ -32,7 +32,9 @@ def plot(fn, load):
 
     plt.title("Load average across time")
 
-    plt.savefig(fn + ".png", dpi=500)
+    imagefn = fn + ".png"
+    plt.savefig(imagefn, dpi=500)
+    print("Saved image in {}".format(imagefn))
 
 def main():
     import sys

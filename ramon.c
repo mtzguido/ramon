@@ -924,10 +924,8 @@ int exec_and_monitor(int argc, char **argv)
 {
 	int pid, rc;
 
-	if (cfg.verbosity >= 2) {
-		for (int i = 0; i < argc; i++)
-			outf(2, "argv", "%i = %s", i, argv[i]);
-	}
+	for (int i = 0; i < argc; i++)
+		outf(1, "argv", "%i = %s", i, argv[i]);
 
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
 	pid = fork();
