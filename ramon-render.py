@@ -5,14 +5,17 @@ from parse import *
 def load_file(fn):
     loads = {}
     marks = {}
+    mems = {}
     with open(fn) as f:
         for line in f:
             if not (search("poll" , line)):
                 continue
             wall = search("wall={:g}", line).fixed[0]
             usage = search("usage={:g}", line).fixed[0]
+            mem = search("mem={:d}", line).fixed[0]
             load = search("load={:g}", line).fixed[0]
             loads[wall] = load
+            mems[wall] = mem
     with open(fn) as f:
         for line in f:
             if not (search("mark" , line)):
@@ -21,9 +24,9 @@ def load_file(fn):
             wall = search("wall={:g}", line).fixed[0]
             marks[mark] = wall
 
-    return loads, marks
+    return loads, mems, marks
 
-def plot(fn, loads, marks):
+def plot(fn, loads, mem, marks):
     import matplotlib.pyplot as plt
     import numpy as np
     from math import ceil
@@ -32,9 +35,11 @@ def plot(fn, loads, marks):
 
     x_axis = []
     y_axis = []
+    y2_axis = []
     for t in loads.keys():
         x_axis.append(t)
         y_axis.append(loads[t])
+        y2_axis.append(mem[t] / 1000000000)
 
     maxx = ceil(max(loads.keys(), default=1))
     maxy = ceil(max(loads.values(), default=1))
@@ -44,6 +49,7 @@ def plot(fn, loads, marks):
     print("nmarks = {}".format(nmarks));
 
     plt.fill_between(x_axis, 0, y_axis)
+    plt.plot(x_axis, y2_axis, color='C2')
 
     lasttime = -10
     lasty = 0
@@ -82,9 +88,9 @@ def main():
 
     file = args.file
 
-    loads, marks = load_file(file)
+    loads, mem, marks = load_file(file)
 
-    plot(file, loads, marks)
+    plot(file, loads, mem, marks)
 
 main()
 
