@@ -28,6 +28,8 @@ def plot(fn, loads, marks):
     import numpy as np
     from math import ceil
 
+    plt.figure(figsize=(12, 4), dpi=400)
+
     x_axis = []
     y_axis = []
     for t in loads.keys():
@@ -67,7 +69,7 @@ def plot(fn, loads, marks):
     plt.title("Load average across time")
 
     imagefn = fn + ".png"
-    plt.savefig(imagefn, dpi=600)
+    plt.savefig(imagefn)
     print("Saved image in {}".format(imagefn))
 
 def main():
