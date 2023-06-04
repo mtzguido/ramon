@@ -59,6 +59,7 @@ struct cgroup_res_info
 	long system_usec;
 	long mempeak;
 	long pidpeak;
+	long memcurr;
 };
 
 /* open directory fd for our cgroup */
@@ -570,6 +571,9 @@ void read_cgroup(struct cgroup_res_info *wo)
 
 	if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
 		wo->pidpeak = -1;
+
+	if (open_and_read_val(true, cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1)
+		wo->memcurr= -1;
 }
 
 void print_cgroup_res_info(struct cgroup_res_info *res)
@@ -612,11 +616,12 @@ void poll()
 
 	read_cgroup(&res);
 
-	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs load=%.2f",
+	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li load=%.2f",
 			wall_us / 1000000.0,
 			res.usage_usec / 1000000.0,
 			res.user_usec / 1000000.0,
 			res.system_usec / 1000000.0,
+			res.memcurr,
 			1.0 * (res.usage_usec - last_poll_usage) / delta_us);
 	fflush(cfg.fout);
 
