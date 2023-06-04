@@ -47,7 +47,7 @@ struct cfg cfg = {
 	.tally = NULL,
 	.debug_level = 1,
 	.verbosity = 1, /* TODO: choose defaults. */
-	.pollms = 0,
+	.pollms = 1000,
 	.notify = NULL,
 	.render = false,
 };
