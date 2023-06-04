@@ -1002,6 +1002,9 @@ int main(int argc, char **argv)
 
 	dbg(3, "TMP_MAX = %i", TMP_MAX);
 
+	if (cfg.render && !cfg.outfile)
+		quit("An output file is needed to use --render");
+
 	/* Maybe redirect output */
 	if (cfg.outfile) {
 		cfg.fout = fopen(cfg.outfile, "w");
@@ -1044,13 +1047,10 @@ int main(int argc, char **argv)
 	rc = exec_and_monitor(argc - optind, argv + optind);
 
 	if (cfg.render) {
-		if (!cfg.outfile) {
-			warn("An output file is needed to use --render");
-		} else {
-			char cmd[500];
-			snprintf(cmd, 500, "ramon-render.py %s", cfg.outfile);
-			system(cmd);
-		}
+		assert(cfg.outfile);
+		char cmd[500];
+		snprintf(cmd, 500, "ramon-render.py %s", cfg.outfile);
+		system(cmd);
 	}
 
 	return rc;
