@@ -36,14 +36,14 @@ def plot(fn, loads, marks):
     plt.plot(x_axis, y_axis)
 
     lasttime = -10
-    lasty = -5
+    lasty = 0
     for tag in marks.keys():
         time = marks[tag]
-        if (lasttime + 20 >= time):
-            y = lasty + 1
+        if (lasttime + 50 >= time):
+            y = lasty - 2
         else:
-            y = -5
-        plt.vlines(time, -5, 29, colors='C1', label=tag);
+            y = 0
+        plt.vlines(time, -5, 29, colors='C1', label=tag, linestyles='dashed');
         plt.text(time, y, tag, rotation=45, size='smaller')
         lasttime = time
         lasty = y
@@ -73,3 +73,11 @@ def main():
     plot(file, loads, marks)
 
 main()
+
+
+# TODO
+# - Use fill graph
+# - show subinvocation as stacked area 
+# - better mark handling
+# - SVG? PDF? Allow to zoom.
+# - Soften?
