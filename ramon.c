@@ -753,6 +753,25 @@ int timediff_ms(struct timespec *t1, struct timespec *t2)
 		(t2->tv_nsec - t1->tv_nsec) / 1000000;
 }
 
+void print_overhead(long total_usec)
+{
+	struct rusage self;
+	int rc;
+
+	rc = getrusage(RUSAGE_SELF, &self);
+	if (rc < 0) {
+		warn("getrusage failed");
+		return;
+	}
+
+	const long utime_usec = 1000000 * self.ru_utime.tv_sec + self.ru_utime.tv_usec;
+	const long stime_usec = 1000000 * self.ru_stime.tv_sec + self.ru_stime.tv_usec;
+
+	dbg(2, "self.rusage.utime = %.3fs", utime_usec / 1000000.0);
+	dbg(2, "self.rusage.stime = %.3fs", stime_usec / 1000000.0);
+	dbg(2, "estimated cpu overhead = %2.5f%%", 100.0 * (utime_usec+stime_usec) / total_usec);
+}
+
 /* Returns the exit code of pid */
 int wait_monitor(int pid)
 {
@@ -803,7 +822,7 @@ int wait_monitor(int pid)
 			if (fd < 0)
 				quit("accept???");
 
-			dbg(0, "accepted conn,fd = %i", fd);
+			dbg(2, "accepted conn,fd = %i", fd);
 
 			struct epoll_event ev;
 			ev.events = EPOLLIN;
@@ -845,6 +864,8 @@ int wait_monitor(int pid)
 
 	outf(0, "walltime", "%.3fs", wall_usec / 1000000.0);
 	outf(0, "loadavg", "%.2f", 1.0f * res.usage_usec / wall_usec);
+
+	print_overhead(res.usage_usec);
 
 	destroy_cgroup();
 
