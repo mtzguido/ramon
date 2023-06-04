@@ -36,8 +36,8 @@ def plot(fn, loads, marks):
         x_axis.append(t)
         y_axis.append(loads[t])
 
-    maxx = ceil(max(loads.keys()))
-    maxy = ceil(max(loads.values()))
+    maxx = ceil(max(loads.keys(), default=1))
+    maxy = ceil(max(loads.values(), default=1))
     nmarks = len(marks.keys())
     print("maxx = {}".format(maxx));
     print("maxy = {}".format(maxy));
