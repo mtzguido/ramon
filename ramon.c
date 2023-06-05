@@ -977,7 +977,10 @@ int exec_and_monitor(int argc, char **argv)
 	for (int i = 0; i < argc; i++)
 		outf(1, "argv", "%i = %s", i, argv[i]);
 
+	/* flush before forking */
+	fflush(NULL);
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
+
 	pid = fork();
 	if (!pid) {
 		/*
