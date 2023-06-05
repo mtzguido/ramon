@@ -152,6 +152,7 @@ const struct option longopts[] = {
 void help(const char *progname)
 {
 	fprintf(stderr, "%s: IOU a manual!\n", progname);
+	fprintf(stderr, "This is version %s\n", RAMON_VERSION);
 }
 
 void parse_opts(int argc, char **argv)
@@ -710,6 +711,7 @@ int sfd, epfd;
 
 void prepare_monitor()
 {
+	outf(0, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
 	int rc;
 
