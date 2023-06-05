@@ -225,6 +225,7 @@ void parse_opts(int argc, char **argv)
 
 		case '?':
 		default:
+			help(argv[0]);
 			exit(1);
 		}
 	}
