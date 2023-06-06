@@ -36,6 +36,7 @@ struct cfg {
 	int pollms;
 	char *notify;
 	bool render;
+	long maxmem;
 };
 
 /* Global config state */
@@ -50,6 +51,7 @@ struct cfg cfg = {
 	.pollms = 1000,
 	.notify = NULL,
 	.render = false,
+	.maxmem = 0,
 };
 
 struct cgroup_res_info
@@ -145,6 +147,7 @@ const struct option longopts[] = {
 	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
 	{ .name = "notify",       .has_arg = required_argument, .flag = NULL, .val = 'n' },
 	{ .name = "render",       .has_arg = no_argument,       .flag = NULL, .val = 'r' },
+	{ .name = "limit-mem",    .has_arg = required_argument, .flag = NULL, .val = 'm' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -160,7 +163,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqsphv", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqsphvm", longopts, NULL);
 		/* printf("opt = '%c', optarg = %s\n", rc, optarg); */
 		switch (rc) {
 		case 'o':
@@ -219,6 +222,10 @@ void parse_opts(int argc, char **argv)
 
 		case 'r':
 			cfg.render = true;
+			break;
+
+		case 'm':
+			cfg.maxmem = atoi(optarg);
 			break;
 
 		case -1:
@@ -952,6 +959,16 @@ void setup()
 		make_sub_cgroup(e_ramonroot);
 		connect_to_upstream();
 	}
+
+	if (cfg.maxmem) {
+		FILE *f = fopenat(cgroup_fd, "memory.max", "w");
+		if (!f)
+			quit("fopen memory.max");
+
+		fprintf(f, "%li", cfg.maxmem);
+		fclose(f);
+	}
+
 	/*
 	 * Re-set the root, even if we are subinvocation: messages are
 	 * passed upwards (TODO!).
