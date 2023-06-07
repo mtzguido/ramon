@@ -820,6 +820,9 @@ void prepare_monitor()
 	if (sfd < 0)
 		quit("signalfd");
 
+	/* Set zero timestamp */
+	zero_wall_us = cur_wall_us();
+
 	set_poll_timer();
 
 	epfd = epoll_create(1);
@@ -1196,9 +1199,6 @@ int spawn(int argc, char **argv)
 int exec_and_monitor(int argc, char **argv)
 {
 	int rc;
-
-	/* Set zero timestamp */
-	zero_wall_us = cur_wall_us();
 
 	prepare_monitor();
 
