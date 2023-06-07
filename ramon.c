@@ -425,7 +425,7 @@ void limit_own_stack(long size)
 bool any_in_cgroup(bool should_warn)
 {
 	bool ret = false;
-	unsigned long n;
+	unsigned long pid; // type ok?
 	FILE *f;
 
 	f = fopenat(cgroup_fd, "cgroup.procs", "r");
@@ -435,13 +435,28 @@ bool any_in_cgroup(bool should_warn)
 		return false;
 	}
 
-	while (fscanf (f, "%lu", &n) > 0) {
+	while (fscanf (f, "%lu", &pid) > 0) {
+		char buf[500];
 		if (!should_warn) {
 			fclose(f);
 			return true;
 		}
 
-		warn("Subprocess still alive after main finished (pid %lu)", n);
+		/* dirty hack, improve */
+		{
+			char fn[200];
+			int i = 0;
+			int c;
+			sprintf(fn, "/proc/%lu/cmdline", pid);
+			FILE *ff = fopen(fn, "r");
+			while (i < (sizeof fn - 1) && (c = fgetc(ff)) != EOF) {
+				if (!c) c = ' ';
+				buf[i++] = c;
+			}
+			buf[i] = 0;
+		}
+
+		warn("Subprocess still alive after main finished (pid %lu, cmdline = '%s')", pid, buf);
 		ret = true;
 	}
 
