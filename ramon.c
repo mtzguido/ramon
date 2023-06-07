@@ -37,7 +37,7 @@ struct cfg {
 	int verbosity;
 	bool save; /* save to a fresh file */
 	int pollms;
-	const char *notify;
+	const char *mark;
 	bool render;
 	long maxmem;
 	long maxcpu;
@@ -54,7 +54,7 @@ struct cfg cfg = {
 	.debug       = 1,
 	.verbosity   = 1,
 	.pollms      = 1000,
-	.notify      = NULL,
+	.mark        = NULL,
 	.render      = false,
 	.maxmem      = 0,
 	.maxcpu      = 0,
@@ -148,7 +148,7 @@ const struct option longopts[] = {
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
 	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
-	{ .name = "notify",       .has_arg = required_argument, .flag = NULL, .val = 'n' },
+	{ .name = "mark",         .has_arg = required_argument, .flag = NULL, .val = 'n' },
 	{ .name = "render",       .has_arg = no_argument,       .flag = NULL, .val = 'r' },
 	{ .name = "limit-mem",    .has_arg = required_argument, .flag = NULL, .val = 'm' },
 	{ .name = "limit-cpu",    .has_arg = required_argument, .flag = NULL, .val = 'c' },
@@ -156,6 +156,17 @@ const struct option longopts[] = {
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
+
+void notify_up(const char *msg, int len)
+{
+	int rc;
+	if (sock_up < 0)
+		quit("sock_up unset");
+
+	rc = write(sock_up, msg, len);
+	if (rc < len)
+		quit("notify_up");
+}
 
 void help(const char *progname)
 {
@@ -208,7 +219,7 @@ void parse_opts(int argc, char **argv)
 			exit(0);
 
 		case 'n':
-			cfg.notify = optarg;
+			cfg.mark = optarg;
 			break;
 
 		case 'r':
@@ -288,8 +299,10 @@ void skipline(FILE *f)
 void find_cgroup_fs()
 {
 	char buf[PATH_MAX];
+	FILE *f;
+	int rc;
 
-	FILE *f = fopen("/proc/mounts", "r");
+	f = fopen("/proc/mounts", "r");
 	if (!f)
 		quit("fopen mounts");
 
@@ -298,7 +311,9 @@ void find_cgroup_fs()
 			skipline(f);
 			continue;
 		}
-		fscanf(f, "%s", cgroupfs_root);
+		rc = fscanf(f, "%s", cgroupfs_root);
+		if (rc != 1)
+			quit("Could not read mount line?");
 		fclose(f);
 		return;
 	}
@@ -749,53 +764,59 @@ void restore_signals()
 
 int sfd, epfd;
 
+void set_poll_timer()
+{
+	struct timeval t;
+	struct itimerval it;
+	int rc;
+
+	/*
+	 * If pollms=0, then both values are zero,
+	 * and setitimer disables the timer.
+	 */
+	t.tv_sec = cfg.pollms / 1000;
+	t.tv_usec = (cfg.pollms % 1000) * 1000;
+	it.it_interval = t;
+	it.it_value    = t;
+
+	rc = setitimer(ITIMER_REAL, &it, NULL);
+	if (rc < 0)
+		warn("Could not set timer; polling may not work");
+}
+
+void epfd_add(int fd)
+{
+	struct epoll_event ev;
+	int rc;
+
+	ev.events = EPOLLIN;
+	ev.data.fd = fd;
+	rc = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+	if (rc < 0)
+		quit("epoll_ctl add %i", fd);
+}
+
 void prepare_monitor()
 {
 	outf(1, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
-	int rc;
 
 	sfd = setup_signalfd();
 	if (sfd < 0)
 		quit("signalfd");
 
-	/* Set interrupt timer */
-	{
-		struct timeval t;
-		t.tv_sec = cfg.pollms / 1000;
-		t.tv_usec = (cfg.pollms % 1000) * 1000;
-		struct itimerval it;
-		it.it_interval = t;
-		it.it_value    = t;
-		rc = setitimer(ITIMER_REAL, &it, NULL);
-		if (rc < 0)
-			warn("Could not set timer; polling may not work");
-	}
+	set_poll_timer();
 
 	epfd = epoll_create(1);
 	if (epfd < 0)
 		quit("epoll_create");
 
 	/* signalfd */
-	{
-		struct epoll_event ev;
-		ev.events = EPOLLIN;
-		ev.data.fd = sfd;
-		rc = epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
-		if (rc < 0)
-			quit("epoll_ctl signalfd");
-	}
+	epfd_add(sfd);
 
 	/* sock down */
 	if (sock_down >= 0)
-	{
-		struct epoll_event ev;
-		ev.events = EPOLLIN;
-		ev.data.fd = sock_down;
-		rc = epoll_ctl(epfd, EPOLL_CTL_ADD, sock_down, &ev);
-		if (rc < 0)
-			quit("epoll_ctl sock_down");
-	}
+		epfd_add(sock_down);
 }
 
 void print_overhead(long total_usec)
@@ -935,12 +956,7 @@ void wait_monitor()
 			if (fd < 0)
 				warn("accept failed");
 
-			struct epoll_event ev;
-			ev.events = EPOLLIN;
-			ev.data.fd = fd;
-			rc = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
-			if (rc < 0)
-				quit("epoll_ctl client");
+			epfd_add(fd);
 			continue;
 		}
 
@@ -954,6 +970,9 @@ void wait_monitor()
 					buf[rc] = 0;
 					outf(0, "mark", "str=%s wall=%.3fs", buf, cur_wall_us() / 1e6);
 				}
+				/* relay upwards if connected */
+				if (sock_up >= 0)
+					notify_up(buf, rc);
 			}
 			if (ev.events & EPOLLHUP)
 				close(ev.data.fd);
@@ -972,7 +991,6 @@ int post_mortem(int pid)
 
 	print_current_time("end");
 
-	// move both of these below exit status
 	print_zombie_stats(pid);
 
 	struct cgroup_res_info res;
@@ -985,7 +1003,6 @@ int post_mortem(int pid)
 
 	print_exit_status(status);
 
-	/* wall_usec = 1000000 * (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1000; */
 	wall_usec = cur_wall_us();
 
 	outf(0, "walltime", "%.3fs", wall_usec / 1e6);
@@ -1002,13 +1019,12 @@ int post_mortem(int pid)
 
 void setup_sock_down()
 {
-	char *sockname;
-	int s;
-	int rc;
 	struct sockaddr_un addr;
+	char *sockname;
+	int s, rc;
 
-	sockname = tempnam("/tmp", "ramon");
 	/* FIXME: somewhere else? */
+	sockname = tempnam("/tmp", "ramon");
 	if (!sockname)
 		quit("tempnam");
 
@@ -1112,17 +1128,6 @@ void setup()
 	setenv(VAR_RAMONROOT, cgroup_path, 1);
 	dbg(2, "cgroup is '%s'", cgroup_path);
 	setup_sock_down();
-}
-
-void notify_up(const char *msg)
-{
-	int rc;
-	if (sock_up < 0)
-		quit("sock_up unset");
-
-	rc = write(sock_up, msg, strlen(msg));
-	if (rc < (int)strlen(msg))
-		quit("notify");
 }
 
 int spawn(int argc, char **argv)
@@ -1245,12 +1250,12 @@ int main(int argc, char **argv)
 		exit(0);
 	}
 
-	if (cfg.notify) {
+	if (cfg.mark) {
 		/* If we cannot connect, just warn and exit successfully */
 		rc = connect_to_upstream();
 		if (rc < 0)
 			return 0;
-		notify_up(cfg.notify);
+		notify_up(cfg.mark, strlen(cfg.mark));
 		return 0;
 	}
 
@@ -1267,8 +1272,11 @@ int main(int argc, char **argv)
 	if (cfg.render) {
 		assert(cfg.outfile);
 		char cmd[500];
-		snprintf(cmd, 500, "ramon-render.py %s", cfg.outfile);
-		system(cmd);
+		int rc;
+		snprintf(cmd, sizeof cmd, "ramon-render %s", cfg.outfile);
+		rc = system(cmd);
+		if (rc)
+			warn("ramon-render failed");
 	}
 
 	return rc;
