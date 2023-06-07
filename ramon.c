@@ -24,10 +24,14 @@
 #include <time.h>
 #include <unistd.h>
 
+#define VAR_RAMONROOT "RAMONROOT"
+#define VAR_RAMONSOCK "RAMONSOCK"
+
 struct cfg {
 	const char *outfile;
 	FILE *fout;
 	bool keep;
+	bool wait;
 	const char *tally;
 	int debug;
 	int verbosity;
@@ -45,6 +49,7 @@ struct cfg cfg = {
 	.outfile     = NULL,
 	.fout        = NULL, /* set to stderr by main() */
 	.keep        = false,
+	.wait        = false,
 	.tally       = NULL,
 	.debug       = 1,
 	.verbosity   = 1,
@@ -72,9 +77,6 @@ int cgroup_fd;
 char cgroupfs_root[PATH_MAX];
 /* our cgroup */
 char cgroup_path[PATH_MAX];
-
-/* start and finish timestamps of subprocess */
-struct timespec t0, t1;
 
 int child_pid;
 
@@ -141,6 +143,7 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
+	{ .name = "wait-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'w' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
 	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
@@ -156,8 +159,9 @@ const struct option longopts[] = {
 
 void help(const char *progname)
 {
-	fprintf(stderr, "%s: IOU a manual!\n", progname);
-	fprintf(stderr, "This is version %s\n", RAMON_VERSION);
+	/* fprintf(stderr, "%s: resource accounting and monitoring tool\n", progname); */
+	fprintf(stderr, "This is ramon version %s\n", RAMON_VERSION);
+	fprintf(stderr, "Usage: %s <options> [--] command <opt1> ... <optN>\n", progname);
 }
 
 void parse_opts(int argc, char **argv)
@@ -165,7 +169,7 @@ void parse_opts(int argc, char **argv)
 	int rc;
 
 	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqsphvm", longopts, NULL);
+		rc = getopt_long(argc, argv, "+o:r1kt:dqsphvmw", longopts, NULL);
 		/* printf("opt = '%c', optarg = %s\n", rc, optarg); */
 		switch (rc) {
 		case 'o':
@@ -178,6 +182,10 @@ void parse_opts(int argc, char **argv)
 
 		case 'k':
 			cfg.keep = true;
+			break;
+
+		case 'w':
+			cfg.wait = true;
 			break;
 
 		case 'd':
@@ -399,7 +407,7 @@ void limit_own_stack(long size)
 		quit("cannot limit stack");
 }
 
-bool any_in_cgroup()
+bool any_in_cgroup(bool should_warn)
 {
 	bool ret = false;
 	unsigned long n;
@@ -413,6 +421,11 @@ bool any_in_cgroup()
 	}
 
 	while (fscanf (f, "%lu", &n) > 0) {
+		if (!should_warn) {
+			fclose(f);
+			return true;
+		}
+
 		warn("Subprocess still alive after main finished (pid %lu)", n);
 		ret = true;
 	}
@@ -445,17 +458,27 @@ void kill_cgroup()
 	usleep(1000);
 }
 
-void destroy_cgroup()
+int pending_sigint()
 {
-	if (any_in_cgroup()) {
-		warn("Killing remaining processes");
-		kill_cgroup();
-	}
+	sigset_t set;
+	sigpending(&set);
+	return sigismember(&set, SIGINT) || sigismember(&set, SIGTERM);
+}
 
-	if (!cfg.keep)
-		try_rm_cgroup();
-	else
-		dbg(1, "Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
+void wait_cgroup()
+{
+	if (cfg.wait) {
+		if (any_in_cgroup(false)) {
+			warn("Waiting for cgroup to finish");
+			while (any_in_cgroup(false) && !pending_sigint())
+				usleep(5000);
+		}
+	} else {
+		if (any_in_cgroup(true)) {
+			warn("Killing remaining processes");
+			kill_cgroup();
+		}
+	}
 }
 
 /* FIXME, very heuristic */
@@ -487,7 +510,7 @@ void t_hms(char buf[HMS_LEN], int usecs)
 	char *p = buf;
 	if (h) p += sprintf(p, "%02dh", h);
 	if (m) p += sprintf(p, "%02dm", m);
-	sprintf(p, "%02.3fs", (usecs % 1000000) / 1000000.0);
+	sprintf(p, "%02.3fs", (usecs % 1000000) / 1e6);
 }
 
 struct kvfmt {
@@ -590,14 +613,17 @@ void print_current_time(const char *key)
 		outf(1, key, "unknown (%s)", strerror(errno));
 }
 
-long wall_us()
+/*
+ * Must be set with
+ *     zero_wall_us = cur_wall_us()
+ * to make cur_wall_us meaningful.
+ */
+long zero_wall_us = 0;
+long cur_wall_us()
 {
 	struct timespec ts;
-
 	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-
-	return  1000000 * (ts.tv_sec - t0.tv_sec) +
-		(ts.tv_nsec - t0.tv_nsec) / 1000;
+	return (1000000 * ts.tv_sec + ts.tv_nsec / 1000) - zero_wall_us;
 }
 
 void read_cgroup(struct cgroup_res_info *wo)
@@ -621,9 +647,9 @@ void read_cgroup(struct cgroup_res_info *wo)
 
 void print_cgroup_res_info(struct cgroup_res_info *res)
 {
-	outf(0, "group.total", "%.3fs", res->usage_usec / 1000000.0);
-	outf(0, "group.utime", "%.3fs", res->user_usec / 1000000.0);
-	outf(0, "group.stime", "%.3fs", res->system_usec / 1000000.0);
+	outf(0, "group.total", "%.3fs", res->usage_usec / 1e6);
+	outf(0, "group.utime", "%.3fs", res->user_usec / 1e6);
+	outf(0, "group.stime", "%.3fs", res->system_usec / 1e6);
 
 	if (res->mempeak > 0) {
 		const char *suf;
@@ -634,44 +660,41 @@ void print_cgroup_res_info(struct cgroup_res_info *res)
 		outf(0, "group.pidpeak", "%lu", res->pidpeak);
 }
 
-struct timespec last_poll_ts = {0};
 void poll()
 {
-	static unsigned long last_poll_usage;
-	struct timespec ts;
-	struct cgroup_res_info res;
+	static unsigned long last_poll_usage = 0;
+	static unsigned long last_poll_us = 0;
+
 	unsigned long delta_us, wall_us;
+	struct cgroup_res_info res;
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-
-	/* absolute */
-	wall_us = 1000000 * (ts.tv_sec - t0.tv_sec) +
-			(ts.tv_nsec - t0.tv_nsec) / 1000;
+	/* get absolute time */
+	wall_us = cur_wall_us();
 
 	/* relative to last measure */
-	delta_us = 1000000 * (ts.tv_sec - last_poll_ts.tv_sec) +
-			(ts.tv_nsec - last_poll_ts.tv_nsec) / 1000;
+	delta_us = wall_us - last_poll_us;
 
-	/* If we are somehow woken up less than 1 microsecond
-	 * after the last time, just skip this measurement. */
+	/*
+	 * If we are somehow woken up less than 1 microsecond
+	 * after the last time, just skip this measurement.
+	 */
 	if (delta_us == 0)
 		return;
 
 	read_cgroup(&res);
 
 	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li load=%.2f",
-			wall_us / 1000000.0,
-			res.usage_usec / 1000000.0,
-			res.user_usec / 1000000.0,
-			res.system_usec / 1000000.0,
+			wall_us / 1e6,
+			res.usage_usec / 1e6,
+			res.user_usec / 1e6,
+			res.system_usec / 1e6,
 			res.memcurr,
 			1.0 * (res.usage_usec - last_poll_usage) / delta_us);
 	fflush(cfg.fout);
 
 	last_poll_usage = res.usage_usec;
-	last_poll_ts = ts;
+	last_poll_us = wall_us;
 }
-
 
 void print_exit_status(int status)
 {
@@ -686,36 +709,12 @@ void print_exit_status(int status)
 	}
 }
 
-void sigint(int sig)
-{
-	/* Ignore 3 signals */
-	const int lim = 3;
-	static int cnt = 0;
-
-	if (sig != SIGINT && sig != SIGTERM) {
-		warn("sigint!!!");
-		return;
-	}
-
-	kill(child_pid, sig);
-
-	if (++cnt >= lim) {
-		struct sigaction sa;
-		sa.sa_handler = SIG_DFL;
-		sa.sa_flags = 0;
-		sigemptyset(&sa.sa_mask);
-
-		sigaction(sig, &sa, NULL);
-	}
-}
-
 int setup_signalfd()
 {
+	struct sigaction sa;
 	int sfd, rc;
 
-	struct sigaction sa;
-
-	/* prevent SIGCHLDs when child is stopped */
+	/* Prevent SIGCHLDs when child is stopped, we don't care (or do we?) */
 	sa.sa_handler = SIG_DFL;
 	sa.sa_flags = SA_NOCLDSTOP;
 	sigemptyset(&sa.sa_mask);
@@ -723,21 +722,13 @@ int setup_signalfd()
 	if (rc < 0)
 		return rc;
 
-	/* handle SIGINT and SIGTERM so we can survive it */
-	sa.sa_handler = sigint;
-	sa.sa_flags = 0;
-	sigemptyset(&sa.sa_mask);
-	rc = sigaction(SIGINT, &sa, NULL);
-	if (rc < 0)
-		return rc;
-	rc = sigaction(SIGTERM, &sa, NULL);
-	if (rc < 0)
-		return rc;
-
-	/* set up a signal fd */
+	/* Set up a signal fd */
 	sigset_t sigmask;
 	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGINT);
+	sigaddset(&sigmask, SIGTERM);
 	sigaddset(&sigmask, SIGCHLD);
+	sigaddset(&sigmask, SIGALRM); /* Used for timer */
 
 	rc = sigprocmask(SIG_BLOCK, &sigmask, NULL);
 	if (rc < 0)
@@ -759,9 +750,18 @@ void prepare_monitor()
 	if (sfd < 0)
 		quit("signalfd");
 
-	/* If we will be polling, prime the first poll timestamp */
-	if (cfg.pollms)
-		clock_gettime(CLOCK_MONOTONIC_RAW, &last_poll_ts);
+	/* Set interrupt timer */
+	{
+		struct timeval t;
+		t.tv_sec = cfg.pollms / 1000;
+		t.tv_usec = (cfg.pollms % 1000) * 1000;
+		struct itimerval it;
+		it.it_interval = t;
+		it.it_value    = t;
+		rc = setitimer(ITIMER_REAL, &it, NULL);
+		if (rc < 0)
+			warn("Could not set timer; polling may not work");
+	}
 
 	epfd = epoll_create(1);
 	if (epfd < 0)
@@ -789,13 +789,6 @@ void prepare_monitor()
 	}
 }
 
-static inline
-int timediff_ms(struct timespec *t1, struct timespec *t2)
-{
-	return 1000 * (t2->tv_sec - t1->tv_sec) +
-		(t2->tv_nsec - t1->tv_nsec) / 1000000;
-}
-
 void print_overhead(long total_usec)
 {
 	struct rusage self;
@@ -810,8 +803,8 @@ void print_overhead(long total_usec)
 	const long utime_usec = 1000000 * self.ru_utime.tv_sec + self.ru_utime.tv_usec;
 	const long stime_usec = 1000000 * self.ru_stime.tv_sec + self.ru_stime.tv_usec;
 
-	dbg(2, "self.rusage.utime = %.3fs", utime_usec / 1000000.0);
-	dbg(2, "self.rusage.stime = %.3fs", stime_usec / 1000000.0);
+	dbg(2, "self.rusage.utime = %.3fs", utime_usec / 1e6);
+	dbg(2, "self.rusage.stime = %.3fs", stime_usec / 1e6);
 	dbg(2, "estimated cpu overhead = %2.5f%%", 100.0 * (utime_usec+stime_usec) / total_usec);
 }
 
@@ -877,54 +870,86 @@ void print_zombie_stats(int pid)
 	outf(0, "root.stime", "%.3fs", 1.0 * stime / clk_tck);
 }
 
-/* Returns the exit code of pid */
-int wait_monitor(int pid)
+void handle_sigint(int sig)
+{
+	/* Ignore 1 signal */
+	const int lim = 1;
+	static int cnt = 0;
+
+	if (sig != SIGINT && sig != SIGTERM) {
+		warn("sigint!!!");
+		return;
+	}
+
+	kill(child_pid, sig);
+
+	if (++cnt >= lim) {
+		struct sigaction sa;
+		sa.sa_handler = SIG_DFL;
+		sa.sa_flags = 0;
+		sigemptyset(&sa.sa_mask);
+
+		sigaction(sig, &sa, NULL);
+	} else {
+		warn("Hit Ctrl-C again to kill ramon");
+	}
+}
+
+int handle_sig()
+{
+	struct signalfd_siginfo si;
+	int rc = read (sfd, &si, sizeof si);
+	if (rc != sizeof si)
+		quit("read signal?");
+
+	switch (si.ssi_signo) {
+	case SIGINT:
+	case SIGTERM:
+		handle_sigint(si.ssi_signo);
+		return 0;
+	case SIGCHLD:
+		return -1;
+	case SIGALRM:
+		poll();
+		return 0;
+	default:
+		warn("Unexpected signal: %i", si.ssi_signo);
+		return 0;
+	}
+}
+
+void wait_monitor()
 {
 	struct epoll_event ev;
-	unsigned long wall_usec;
-	int timeout;
-	int status;
 	int rc;
 
-	struct timespec tep0, tep;
-
-	timeout = cfg.pollms > 0 ? cfg.pollms: -1;
-
-	dbg(2, "entering event loop");
-	dbg(2, "sock_down = %i", sock_down);
-	dbg(2, "sock_up = %i", sock_up);
-
-	clock_gettime(CLOCK_MONOTONIC_RAW, &tep0);
 	while (1) {
-		clock_gettime(CLOCK_MONOTONIC_RAW, &tep);
+		rc = epoll_wait(epfd, &ev, 1, -1);
 
-		/* try to hit a multiple of cfg.pollms */
-		timeout = cfg.pollms - timediff_ms(&tep0, &tep) % cfg.pollms;
-
-		rc = epoll_wait(epfd, &ev, 1, timeout);
-
-		if (rc < 0 && errno == EINTR) {
+		if (rc < 0 && errno == EINTR)
 			continue;
-		} else if (rc == 0) {
-			assert(cfg.pollms);
-			poll();
-		} else if (ev.data.fd == sfd) {
-			struct signalfd_siginfo si;
-			rc = read (sfd, &si, sizeof si);
-			if (rc != sizeof si)
-				quit("read signal?");
 
-			if (si.ssi_signo == SIGCHLD) {
+		if (rc <= 0) {
+			/* really should not happen */
+			warn("epoll returned %i", rc);
+			continue;
+		}
+
+		/* Got a signal */
+		if (ev.data.fd == sfd) {
+			rc = handle_sig();
+			if (rc)
 				break;
-			} else {
-				assert(!"wtf signal?");
-			}
-		} else if (ev.data.fd == sock_down) {
-			int fd = accept(sock_down, NULL, NULL);
-			if (fd < 0)
-				quit("accept???");
+			continue;
+		}
 
-			dbg(2, "accepted conn,fd = %i", fd);
+		/* Child wants to connect */
+		if (ev.data.fd == sock_down) {
+			struct sockaddr_un cli;
+			socklen_t len = sizeof cli;
+			int fd = accept(sock_down, &cli, &len);
+			if (fd < 0)
+				warn("accept failed");
 
 			struct epoll_event ev;
 			ev.events = EPOLLIN;
@@ -932,22 +957,35 @@ int wait_monitor(int pid)
 			rc = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
 			if (rc < 0)
 				quit("epoll_ctl client");
-		} else {
+			continue;
+		}
+
+		/* Got a message (hopefully... fixme) */
+		{
 			/* must be a client socket writing */
 			if (ev.events & EPOLLIN) {
 				char buf[200];
 				int rc = read(ev.data.fd, buf, sizeof buf - 1);
 				if (rc > 0) {
 					buf[rc] = 0;
-					outf(0, "mark", "str=%s wall=%.3fs", buf, wall_us() / 1000000.0);
+					outf(0, "mark", "str=%s wall=%.3fs", buf, cur_wall_us() / 1e6);
 				}
 			}
 			if (ev.events & EPOLLHUP)
 				close(ev.data.fd);
 		}
 	}
+}
 
-	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
+/* Returns the exit code of pid */
+int post_mortem(int pid)
+{
+	unsigned long wall_usec;
+	int status;
+	int rc;
+
+	wait_cgroup();
+
 	print_current_time("end");
 
 	// move both of these below exit status
@@ -963,20 +1001,17 @@ int wait_monitor(int pid)
 
 	print_exit_status(status);
 
-	/* TODO: is the getrusage thing useful? */
-	/* struct rusage res = child; */
-	/* outf("root.cpu", "%.3fs", res.ru_utime.tv_sec + res.ru_utime.tv_usec / 1000000.0); */
-	/* outf("root.sys", "%.3fs", res.ru_stime.tv_sec + res.ru_stime.tv_usec / 1000000.0); */
-	/* outf("root.maxrss", "%liKB", res.ru_maxrss); */
+	/* wall_usec = 1000000 * (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1000; */
+	wall_usec = cur_wall_us();
 
-	wall_usec = 1000000 * (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1000;
-
-	outf(0, "walltime", "%.3fs", wall_usec / 1000000.0);
+	outf(0, "walltime", "%.3fs", wall_usec / 1e6);
 	outf(0, "loadavg", "%.2f", 1.0f * res.usage_usec / wall_usec);
-
 	print_overhead(res.usage_usec);
 
-	destroy_cgroup();
+	if (!cfg.keep)
+		try_rm_cgroup();
+	else
+		dbg(1, "Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
 
 	return WEXITSTATUS(status);
 }
@@ -1010,39 +1045,46 @@ void setup_sock_down()
 
 	dbg(2, "sockname = %s", sockname);
 	strcpy(sock_down_path, sockname);
-	setenv("RAMONSOCK", sockname, 1);
+	setenv(VAR_RAMONSOCK, sockname, 1);
 	sock_down = s;
 
 	free(sockname);
 }
 
-void connect_to_upstream()
+int connect_to_upstream()
 {
-	const char *up_path = getenv("RAMONSOCK");
+	const char *up_path = getenv(VAR_RAMONSOCK);
 	struct sockaddr_un addr;
-	int rc;
-	int s;
+	int rc, s;
 
-	if (!up_path)
-		quit("RAMOMSOCK unset; not a nested invocation?");
+	if (!up_path) {
+		warn("$" VAR_RAMONSOCK " unset; not a nested invocation?");
+		return -1;
+	}
 
 	s = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (s < 0)
-		quit("socket");
+	if (s < 0) {
+		warn ("Could not allocate unix socket");
+		return s;
+	}
 
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, up_path, 108);
 
 	rc = connect(s, &addr, sizeof addr);
-	if (rc < 0)
-		quit("connect up");
+	if (rc < 0) {
+		warn("Could not connect to upstream");
+		return rc;
+	}
 
 	sock_up = s;
+	return 0;
 }
 
 void setup()
 {
-	const char *e_ramonroot = getenv("RAMONROOT");
+	const char *e_ramonroot = getenv(VAR_RAMONROOT);
+	int rc;
 
 	if (!e_ramonroot) {
 		/*
@@ -1053,10 +1095,12 @@ void setup()
 		find_cgroup_fs();
 		make_new_cgroup();
 	} else {
-		/* subinvocation, nest within the root and connect */
+		/* subinvocation, nest within the parent's cgroup and connect */
 		strcpy(cgroupfs_root, e_ramonroot);
 		make_sub_cgroup(e_ramonroot);
-		connect_to_upstream();
+		rc = connect_to_upstream();
+		if (rc < 0)
+			exit(rc);
 	}
 
 	if (cfg.maxmem) {
@@ -1081,7 +1125,7 @@ void setup()
 	 * Re-set the root, even if we are subinvocation: messages are
 	 * passed upwards (TODO!).
 	 */
-	setenv("RAMONROOT", cgroup_path, 1);
+	setenv(VAR_RAMONROOT, cgroup_path, 1);
 	dbg(2, "cgroup is '%s'", cgroup_path);
 	setup_sock_down();
 }
@@ -1106,7 +1150,9 @@ int exec_and_monitor(int argc, char **argv)
 
 	/* flush before forking */
 	fflush(NULL);
-	clock_gettime(CLOCK_MONOTONIC_RAW, &t0);
+
+	/* set zero timestamp */
+	zero_wall_us = cur_wall_us();
 
 	pid = fork();
 	if (!pid) {
@@ -1146,7 +1192,9 @@ int exec_and_monitor(int argc, char **argv)
 	child_pid = pid;
 	outf(1, "childpid", "%lu", pid);
 
-	rc = wait_monitor(pid);
+	wait_monitor();
+
+	rc = post_mortem(pid);
 
 	if (cfg.outfile)
 		fclose(cfg.fout);
@@ -1175,8 +1223,6 @@ int main(int argc, char **argv)
 	cfg.fout = stderr;
 
 	parse_opts(argc, argv);
-
-	dbg(3, "TMP_MAX = %i", TMP_MAX);
 
 	if (cfg.render && !cfg.outfile)
 		quit("An output file is needed to use --render");
@@ -1207,7 +1253,10 @@ int main(int argc, char **argv)
 	}
 
 	if (cfg.notify) {
-		connect_to_upstream();
+		/* If we cannot connect, just warn and exit successfully */
+		rc = connect_to_upstream();
+		if (rc < 0)
+			return 0;
 		notify_up(cfg.notify);
 		return 0;
 	}

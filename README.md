@@ -14,3 +14,5 @@ TODO:
 NOTE: if the invoked process has several threads,
 they be accounte for together even in nonrecusive mode,
 as they belong to the same process.
+
+- You can trigger a poll by sending a SIGALRM to ramon.
