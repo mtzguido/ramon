@@ -1158,7 +1158,7 @@ int exec_and_monitor(int argc, char **argv)
 	if (!pid) {
 		/*
 		 * Child just executes the given command, exit with 127
-		 * (standard for * 'command not found' otherwise.
+		 * (standard for 'command not found') otherwise.
 		 */
 
 		/* Put self in fresh cgroup */
