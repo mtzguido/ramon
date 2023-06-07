@@ -27,31 +27,33 @@
 struct cfg {
 	const char *outfile;
 	FILE *fout;
-	bool recursive;
 	bool keep;
 	const char *tally;
-	int debug_level;
+	int debug;
 	int verbosity;
 	bool save; /* save to a fresh file */
 	int pollms;
-	char *notify;
+	const char *notify;
 	bool render;
 	long maxmem;
+	long maxcpu;
+	long maxstack;
 };
 
 /* Global config state */
 struct cfg cfg = {
-	.outfile = NULL,
-	.fout = NULL, /* set to stderr by main() */
-	.recursive = false,
-	.keep = false,
-	.tally = NULL,
-	.debug_level = 1,
-	.verbosity = 1, /* TODO: choose defaults. */
-	.pollms = 1000,
-	.notify = NULL,
-	.render = false,
-	.maxmem = 0,
+	.outfile     = NULL,
+	.fout        = NULL, /* set to stderr by main() */
+	.keep        = false,
+	.tally       = NULL,
+	.debug       = 1,
+	.verbosity   = 1,
+	.pollms      = 1000,
+	.notify      = NULL,
+	.render      = false,
+	.maxmem      = 0,
+	.maxcpu      = 0,
+	.maxstack    = 0,
 };
 
 struct cgroup_res_info
@@ -74,7 +76,7 @@ char cgroup_path[PATH_MAX];
 /* start and finish timestamps of subprocess */
 struct timespec t0, t1;
 
-int childpid;
+int child_pid;
 
 int sock_up = -1;
 int sock_down = -1;
@@ -122,7 +124,7 @@ void __dbg(const char *fmt, ...)
 
 #define dbg(n, ...)				\
 	do {					\
-		if (cfg.debug_level >= n)	\
+		if (cfg.debug >= n)	\
 			__dbg(__VA_ARGS__);	\
 	} while(0)
 
@@ -138,8 +140,6 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
-	/* { .name = "recursive",    .has_arg = no_argument,       .flag = NULL, .val = 'r' }, // FIXME: cook up a library for this crap */
-	/* { .name = "no-recursive", .has_arg = no_argument,       .flag = NULL, .val = '1' }, */
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
 	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
@@ -148,6 +148,8 @@ const struct option longopts[] = {
 	{ .name = "notify",       .has_arg = required_argument, .flag = NULL, .val = 'n' },
 	{ .name = "render",       .has_arg = no_argument,       .flag = NULL, .val = 'r' },
 	{ .name = "limit-mem",    .has_arg = required_argument, .flag = NULL, .val = 'm' },
+	{ .name = "limit-cpu",    .has_arg = required_argument, .flag = NULL, .val = 'c' },
+	{ .name = "limit-stack",  .has_arg = required_argument, .flag = NULL, .val = 'a' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -174,31 +176,12 @@ void parse_opts(int argc, char **argv)
 			cfg.tally = optarg;
 			break;
 
-		/* case 'r': */
-		/*         warn("ignored"); */
-		/*         cfg.recursive = true; */
-		/*         break; */
-
-		/* case '1': */
-		/*         warn("ignored"); */
-		/*         cfg.recursive = false; */
-		/*         break; */
-
 		case 'k':
 			cfg.keep = true;
 			break;
 
 		case 'd':
-			cfg.debug_level++;
-			break;
-
-		case 'v':
-			cfg.verbosity++;
-			break;
-
-		case 'q':
-			if (cfg.debug_level > 0)
-				cfg.debug_level--;
+			cfg.debug++;
 			break;
 
 		case 's':
@@ -225,7 +208,18 @@ void parse_opts(int argc, char **argv)
 			break;
 
 		case 'm':
+			assert(optarg);
 			cfg.maxmem = atoi(optarg);
+			break;
+
+		case 'c':
+			assert(optarg);
+			cfg.maxcpu = atoi(optarg);
+			break;
+
+		case 'a':
+			assert(optarg);
+			cfg.maxstack = atoi(optarg);
 			break;
 
 		case -1:
@@ -372,7 +366,7 @@ void try_rm_cgroup()
 
 	rc = rmdir(cgroup_path);
 	if (rc < 0 && errno != ENOENT)
-		quit("rmdir");
+		warn("Could not remove cgroup");
 }
 
 void put_in_cgroup()
@@ -391,6 +385,20 @@ void put_in_cgroup()
 	close(fd);
 }
 
+/* Operates on self, must be called only by child process */
+void limit_own_stack(long size)
+{
+	struct rlimit rlim;
+	int rc;
+
+	rlim.rlim_cur = size;
+	rlim.rlim_max = size;
+
+	rc = setrlimit(RLIMIT_STACK, &rlim);
+	if (rc < 0)
+		quit("cannot limit stack");
+}
+
 bool any_in_cgroup()
 {
 	bool ret = false;
@@ -398,11 +406,14 @@ bool any_in_cgroup()
 	FILE *f;
 
 	f = fopenat(cgroup_fd, "cgroup.procs", "r");
-	if (!f)
-		quit("open cgroup");
+	if (!f) {
+		warn("Could not open cgroup.procs");
+		/* Optimistically carry on */
+		return false;
+	}
 
 	while (fscanf (f, "%lu", &n) > 0) {
-		dbg(1, "A subprocess is still alive after main process finished (pid = %lu)", n);
+		warn("Subprocess still alive after main finished (pid %lu)", n);
 		ret = true;
 	}
 
@@ -417,24 +428,29 @@ void kill_cgroup()
 
 	fd = openat(cgroup_fd, "cgroup.kill", O_WRONLY);
 	if (fd < 0)
-		quit("open cgroup");
+		warn("Could not open cgroup.kill");
 
 	rc = write(fd, "1", 1);
 	if (rc != 1)
-		quit("write cgroup.kill");
+		warn("Could not send kill signal to group");
 
 	close(fd);
+
+	/*
+	 * There is a race between sending the kill signal and
+	 * the group really being dead and able to be removed.
+	 * What should really be done is wait for events
+	 * in the cgroup.events file. TODO!
+	 */
+	usleep(1000);
 }
 
 void destroy_cgroup()
 {
 	if (any_in_cgroup()) {
-		dbg(1, "Killing remaining processes");
+		warn("Killing remaining processes");
 		kill_cgroup();
 	}
-
-	/* FIXME: There is a race here between killing the group
-	 * and being able to remove it. */
 
 	if (!cfg.keep)
 		try_rm_cgroup();
@@ -448,12 +464,30 @@ unsigned long humanize(unsigned long x, const char **suf)
 	static const char* sufs[] = { "", "K", "M", "G", "T", "P", NULL };
 	int pow = 0;
 
-	while (x > 102400 && sufs[pow+1] != NULL) {
+	/* no more than 5 digits */
+	while (x > 99999 && sufs[pow+1] != NULL) {
 		pow++;
 		x /= 1024;
 	}
 	*suf = sufs[pow];
 	return x;
+}
+
+#define HMS_LEN (6+1+2+1+2+1+3+1+1) // HHHHHHhMMmSS.SSSs + '\0'
+void t_hms(char buf[HMS_LEN], int usecs)
+{
+	/* int ms = (usecs / 1000) % 1000; */
+	/* int s  = (usecs / 1000000) % 60; */
+	int m  = (usecs / 60/1000000) % 60;
+	int h  = (usecs / 60/60/1000000);
+
+	if (h > 999999)
+		warn("Um... over a million hours?");
+
+	char *p = buf;
+	if (h) p += sprintf(p, "%02dh", h);
+	if (m) p += sprintf(p, "%02dm", m);
+	sprintf(p, "%02.3fs", (usecs % 1000000) / 1000000.0);
 }
 
 struct kvfmt {
@@ -587,9 +621,9 @@ void read_cgroup(struct cgroup_res_info *wo)
 
 void print_cgroup_res_info(struct cgroup_res_info *res)
 {
-	outf(0, "group.usage", "%.3fs", res->usage_usec / 1000000.0);
-	outf(0, "group.user", "%.3fs", res->user_usec / 1000000.0);
-	outf(0, "group.system", "%.3fs", res->system_usec / 1000000.0);
+	outf(0, "group.total", "%.3fs", res->usage_usec / 1000000.0);
+	outf(0, "group.utime", "%.3fs", res->user_usec / 1000000.0);
+	outf(0, "group.stime", "%.3fs", res->system_usec / 1000000.0);
 
 	if (res->mempeak > 0) {
 		const char *suf;
@@ -641,15 +675,14 @@ void poll()
 
 void print_exit_status(int status)
 {
-	int lvl = WIFEXITED(status) ? 1 : 0;
-	outf(lvl, "status", wifstring(status));
+	outf(0, "status", wifstring(status));
 
 	if (WIFEXITED(status)) {
-		outf(lvl, "exitcode", "%i", WEXITSTATUS(status));
+		outf(0, "exitcode", "%i", WEXITSTATUS(status));
 	} else if (WIFSIGNALED(status)) {
 		int sig = WTERMSIG(status);
-		outf(lvl, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
-		outf(lvl, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
+		outf(0, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
+		outf(0, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 }
 
@@ -664,7 +697,7 @@ void sigint(int sig)
 		return;
 	}
 
-	kill(childpid, sig);
+	kill(child_pid, sig);
 
 	if (++cnt >= lim) {
 		struct sigaction sa;
@@ -718,7 +751,7 @@ int sfd, epfd;
 
 void prepare_monitor()
 {
-	outf(0, "version", "%s", RAMON_VERSION);
+	outf(1, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
 	int rc;
 
@@ -782,6 +815,68 @@ void print_overhead(long total_usec)
 	dbg(2, "estimated cpu overhead = %2.5f%%", 100.0 * (utime_usec+stime_usec) / total_usec);
 }
 
+void print_zombie_stats(int pid)
+{
+	char comm[16]; /* TASK_COMM_LEN = 16, see `man 5 proc' */
+	char buf[64];
+	FILE *f;
+	int rc;
+
+	sprintf(buf, "/proc/%i/stat", pid);
+	f = fopen(buf, "r");
+	if (!f) {
+		warn("Could not open %s", buf);
+		return;
+	}
+
+	/*
+	 * See `man 5 proc'.
+	 *
+	 * The `*' marks a particular specification as assignment-supressed,
+	 * so we don't need to pass an argument to receive the value. However,
+	 * gcc raises a warning if it is combined with a length modifier (`l').
+	 * The `l'` can be removed without functional change, but I don't see
+	 * why this would warn. Keeping_ it helps understand the code,
+	 * and lessens the chance of future bugs (say if we later want to actually
+	 * use a field, removing the `*', but forget to add back the `l').
+	 *
+	 * Anyway, for those fields, just pass a dummy.
+	 */
+	unsigned long utime = -1, stime = -1;
+	unsigned long lu_dummy;
+	int pid_;
+	char st;
+
+	rc = fscanf(f, "%d   (%[^)]) %c   %*d  %*d  %*d  %*d  %*d  %*u  %lu "
+		       "%lu  %lu  %lu  %lu  %lu"
+			, &pid_
+			, comm
+			, &st
+			, &lu_dummy
+			, &lu_dummy
+			, &lu_dummy
+			, &lu_dummy
+			, &utime
+			, &stime
+			);
+
+	if (rc != 9) {
+		warn("Parsing procstat failed");
+		return;
+	}
+
+	if (pid != pid_)
+		warn("PID mismatch in stat?");
+	if (st != 'Z')
+		warn("Child is not zombie?");
+ 
+	long clk_tck = sysconf(_SC_CLK_TCK);
+
+	outf(0, "executable", "%s", comm);
+	outf(0, "root.utime", "%.3fs", 1.0 * utime / clk_tck);
+	outf(0, "root.stime", "%.3fs", 1.0 * stime / clk_tck);
+}
+
 /* Returns the exit code of pid */
 int wait_monitor(int pid)
 {
@@ -820,9 +915,6 @@ int wait_monitor(int pid)
 				quit("read signal?");
 
 			if (si.ssi_signo == SIGCHLD) {
-				rc = wait4(pid, &status, WNOHANG, NULL);
-				if (rc != pid)
-					quit("wait4");
 				break;
 			} else {
 				assert(!"wtf signal?");
@@ -858,11 +950,18 @@ int wait_monitor(int pid)
 	clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
 	print_current_time("end");
 
-	print_exit_status(status);
+	// move both of these below exit status
+	print_zombie_stats(child_pid);
 
 	struct cgroup_res_info res;
 	read_cgroup(&res);
 	print_cgroup_res_info(&res);
+
+	rc = wait4(pid, &status, WNOHANG, NULL);
+	if (rc != pid)
+		quit("wait4");
+
+	print_exit_status(status);
 
 	/* TODO: is the getrusage thing useful? */
 	/* struct rusage res = child; */
@@ -963,10 +1062,19 @@ void setup()
 	if (cfg.maxmem) {
 		FILE *f = fopenat(cgroup_fd, "memory.max", "w");
 		if (!f)
-			quit("fopen memory.max");
+			quit("cannot limit memory");
 
 		fprintf(f, "%li", cfg.maxmem);
 		fclose(f);
+	}
+
+	if (cfg.maxcpu) {
+		/* FILE *f = fopenat(cgroup_fd, "cpu.max", "w"); */
+		/* if (!f) */
+			quit("cannot limit cpu (IOU)");
+
+		/* fprintf(f, "%li", cfg.maxmem); */
+		/* fclose(f); */
 	}
 
 	/*
@@ -1010,9 +1118,13 @@ int exec_and_monitor(int argc, char **argv)
 		/* Put self in fresh cgroup */
 		put_in_cgroup();
 
+		/* Maybe limit stack */
+		if (cfg.maxstack)
+			limit_own_stack(cfg.maxstack);
+
 		/*
-		 * Close outfile if we opened one, we did not use
-		 * O_CLOEXEC for it.
+		 * Close outfile if we opened one. All other files which remain
+		 * were opened with O_CLOEXEC.
 		 */
 		if (cfg.outfile)
 			fclose(cfg.fout);
@@ -1031,7 +1143,7 @@ int exec_and_monitor(int argc, char **argv)
 
 	prepare_monitor();
 
-	childpid = pid;
+	child_pid = pid;
 	outf(1, "childpid", "%lu", pid);
 
 	rc = wait_monitor(pid);
