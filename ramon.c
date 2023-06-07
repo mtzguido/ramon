@@ -462,7 +462,7 @@ int pending_sigint()
 {
 	sigset_t set;
 	sigpending(&set);
-	return sigismember(&set, SIGINT) || sigismember(&set, SIGTERM);
+	return sigismember(&set, SIGINT);
 }
 
 void wait_cgroup()
@@ -726,7 +726,6 @@ int setup_signalfd()
 	sigset_t sigmask;
 	sigemptyset(&sigmask);
 	sigaddset(&sigmask, SIGINT);
-	sigaddset(&sigmask, SIGTERM);
 	sigaddset(&sigmask, SIGCHLD);
 	sigaddset(&sigmask, SIGALRM); /* Used for timer */
 
@@ -736,6 +735,16 @@ int setup_signalfd()
 
 	sfd = signalfd(-1, &sigmask, SFD_CLOEXEC);
 	return sfd;
+}
+
+void restore_signals()
+{
+	sigset_t sigmask;
+	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGINT);
+	sigaddset(&sigmask, SIGCHLD);
+	sigaddset(&sigmask, SIGALRM);
+	sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
 }
 
 int sfd, epfd;
@@ -870,31 +879,6 @@ void print_zombie_stats(int pid)
 	outf(0, "root.stime", "%.3fs", 1.0 * stime / clk_tck);
 }
 
-void handle_sigint(int sig)
-{
-	/* Ignore 1 signal */
-	const int lim = 1;
-	static int cnt = 0;
-
-	if (sig != SIGINT && sig != SIGTERM) {
-		warn("sigint!!!");
-		return;
-	}
-
-	kill(child_pid, sig);
-
-	if (++cnt >= lim) {
-		struct sigaction sa;
-		sa.sa_handler = SIG_DFL;
-		sa.sa_flags = 0;
-		sigemptyset(&sa.sa_mask);
-
-		sigaction(sig, &sa, NULL);
-	} else {
-		warn("Hit Ctrl-C again to kill ramon");
-	}
-}
-
 int handle_sig()
 {
 	struct signalfd_siginfo si;
@@ -904,8 +888,8 @@ int handle_sig()
 
 	switch (si.ssi_signo) {
 	case SIGINT:
-	case SIGTERM:
-		handle_sigint(si.ssi_signo);
+		/* Just forward */
+		kill(child_pid, SIGINT);
 		return 0;
 	case SIGCHLD:
 		return -1;
@@ -989,7 +973,7 @@ int post_mortem(int pid)
 	print_current_time("end");
 
 	// move both of these below exit status
-	print_zombie_stats(child_pid);
+	print_zombie_stats(pid);
 
 	struct cgroup_res_info res;
 	read_cgroup(&res);
@@ -1141,9 +1125,9 @@ void notify_up(const char *msg)
 		quit("notify");
 }
 
-int exec_and_monitor(int argc, char **argv)
+int spawn(int argc, char **argv)
 {
-	int pid, rc;
+	int pid;
 
 	for (int i = 0; i < argc; i++)
 		outf(1, "argv", "%i = %s", i, argv[i]);
@@ -1151,50 +1135,59 @@ int exec_and_monitor(int argc, char **argv)
 	/* flush before forking */
 	fflush(NULL);
 
-	/* set zero timestamp */
-	zero_wall_us = cur_wall_us();
-
 	pid = fork();
-	if (!pid) {
-		/*
-		 * Child just executes the given command, exit with 127
-		 * (standard for 'command not found') otherwise.
-		 */
+	if (pid)
+		return pid;
 
-		/* Put self in fresh cgroup */
-		put_in_cgroup();
+	/*
+	 * Child just executes the given command, exit with 127
+	 * (standard for 'command not found') otherwise.
+	 */
 
-		/* Maybe limit stack */
-		if (cfg.maxstack)
-			limit_own_stack(cfg.maxstack);
+	/* Put self in fresh cgroup */
+	put_in_cgroup();
 
-		/*
-		 * Close outfile if we opened one. All other files which remain
-		 * were opened with O_CLOEXEC.
-		 */
-		if (cfg.outfile)
-			fclose(cfg.fout);
+	/* Child should not have signals blocked */
+	restore_signals();
 
-		/* TODO: does this really drop privileges? */
-		dbg(2, "getuid() = %i", getuid());
-		setuid(getuid());
+	/* Maybe limit stack */
+	if (cfg.maxstack)
+		limit_own_stack(cfg.maxstack);
 
-		/* Execute given command */
-		execvp(argv[0], argv);
+	/*
+	 * Close outfile if we opened one. All other files which remain
+	 * were opened with O_CLOEXEC.
+	 */
+	if (cfg.outfile)
+		fclose(cfg.fout);
 
-		/* exec() failed if we reach here */
-		perror(argv[0]);
-		exit(127);
-	}
+	/* TODO: does this really drop privileges? */
+	dbg(2, "getuid() = %i", getuid());
+	setuid(getuid());
+
+	/* Execute given command */
+	execvp(argv[0], argv);
+
+	/* exec() failed if we reach here */
+	perror(argv[0]);
+	exit(127);
+}
+
+int exec_and_monitor(int argc, char **argv)
+{
+	int rc;
+
+	/* Set zero timestamp */
+	zero_wall_us = cur_wall_us();
 
 	prepare_monitor();
 
-	child_pid = pid;
-	outf(1, "childpid", "%lu", pid);
+	child_pid = spawn(argc, argv);
+	outf(1, "childpid", "%lu", child_pid);
 
 	wait_monitor();
 
-	rc = post_mortem(pid);
+	rc = post_mortem(child_pid);
 
 	if (cfg.outfile)
 		fclose(cfg.fout);
