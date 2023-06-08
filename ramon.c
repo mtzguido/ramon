@@ -29,6 +29,7 @@
 
 struct cfg {
 	const char *outfile;
+	bool stderr;
 	FILE *fout;
 	bool keep;
 	bool wait;
@@ -47,7 +48,8 @@ struct cfg {
 /* Global config state */
 struct cfg cfg = {
 	.outfile     = NULL,
-	.fout        = NULL, /* set to stderr by main() */
+	.stderr      = true,
+	.fout        = NULL,
 	.keep        = false,
 	.wait        = false,
 	.tally       = NULL,
@@ -142,6 +144,7 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 
 const struct option longopts[] = {
 	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
+	{ .name = "tee",          .has_arg = required_argument, .flag = NULL, .val = 'e' },
 	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
 	{ .name = "wait-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'w' },
 	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
@@ -185,6 +188,11 @@ void parse_opts(int argc, char **argv)
 		switch (rc) {
 		case 'o':
 			cfg.outfile = optarg;
+			cfg.stderr = false;
+			break;
+		case 'e':
+			cfg.outfile = optarg;
+			cfg.stderr = true;
 			break;
 
 		case 't':
@@ -256,13 +264,30 @@ void __outf(const char *key, const char *fmt, ...)
 {
 	va_list va;
 
-	/* When printing to stderr we prepend a marker */
-	fprintf(cfg.fout, "%s%-20s ", cfg.fout == stderr ? "ramon: " : "", key);
+	assert (cfg.stderr || cfg.fout);
 
-	va_start(va, fmt);
-	vfprintf(cfg.fout, fmt, va);
-	va_end(va);
-	fputs("\n", cfg.fout);
+	if (cfg.stderr) {
+		/* When printing to stderr we prepend a marker */
+		fprintf(stderr, "ramon: %-20s ", key);
+		va_start(va, fmt);
+		vfprintf(stderr, fmt, va);
+		va_end(va);
+		fputs("\n", stderr);
+	}
+	if (cfg.fout) {
+		fprintf(cfg.fout, "%-20s ",key);
+		va_start(va, fmt);
+		vfprintf(cfg.fout, fmt, va);
+		va_end(va);
+		fputs("\n", cfg.fout);
+	}
+}
+
+void ramon_flush()
+{
+	fflush(stderr);
+	if (cfg.fout)
+		fflush(cfg.fout);
 }
 
 #define outf(n, ...)				\
@@ -720,7 +745,7 @@ void poll()
 			res.system_usec / 1e6,
 			res.memcurr,
 			1.0 * (res.usage_usec - last_poll_usage) / delta_us);
-	fflush(cfg.fout);
+	ramon_flush();
 
 	last_poll_usage = res.usage_usec;
 	last_poll_us = wall_us;
@@ -1233,7 +1258,7 @@ int main(int argc, char **argv)
 	int rc;
 
 	/* non-constant default configs */
-	cfg.fout = stderr;
+	cfg.fout = NULL;
 
 	parse_opts(argc, argv);
 
