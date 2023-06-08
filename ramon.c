@@ -943,7 +943,7 @@ void print_zombie_stats(int pid)
  
 	long clk_tck = sysconf(_SC_CLK_TCK);
 
-	outf(0, "executable", "%s", comm);
+	outf(0, "root.execname", "%s", comm);
 	outf(0, "root.utime", "%.3fs", 1.0 * utime / clk_tck);
 	outf(0, "root.stime", "%.3fs", 1.0 * stime / clk_tck);
 }
