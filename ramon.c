@@ -445,7 +445,7 @@ bool any_in_cgroup(bool should_warn)
 		/* dirty hack, improve */
 		{
 			char fn[200];
-			int i = 0;
+			size_t i = 0;
 			int c;
 			sprintf(fn, "/proc/%lu/cmdline", pid);
 			FILE *ff = fopen(fn, "r");
