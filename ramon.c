@@ -165,7 +165,7 @@ void notify_up(const char *msg, int len)
 
 	rc = write(sock_up, msg, len);
 	if (rc < len)
-		quit("notify_up");
+		warn("Writing to upstream socket failed (%i vs %i)", rc, len);
 }
 
 void help(const char *progname)
