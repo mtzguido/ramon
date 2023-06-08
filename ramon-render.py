@@ -6,6 +6,8 @@ def load_file(fn):
     loads = {}
     marks = {}
     mems = {}
+    nmarks = 0
+
     with open(fn) as f:
         for line in f:
             if not (search("poll" , line)):
@@ -22,7 +24,8 @@ def load_file(fn):
                 continue
             mark = search("str={:S}", line).fixed[0]
             wall = search("wall={:g}", line).fixed[0]
-            marks[mark] = wall
+            marks[nmarks] = (mark, wall)
+            nmarks=nmarks+1
 
     return loads, mems, marks
 
@@ -55,8 +58,8 @@ def plot(fn, loads, mems, marks):
     lasttime = -10
     lasty = 0
     marki = 0
-    for tag in marks.keys():
-        time = marks[tag]
+    for k in marks.keys():
+        (tag, time) = marks[k]
         #  if (lasttime + 50 >= time):
         #      y = lasty - 2
         #  else:
