@@ -935,6 +935,8 @@ void print_zombie_stats(int pid)
 		warn("PID mismatch in stat?");
 	if (st != 'Z')
 		warn("Child is not zombie?");
+
+	fclose(f);
  
 	long clk_tck = sysconf(_SC_CLK_TCK);
 
