@@ -105,12 +105,15 @@ void quit(const char *fmt, ...)
 void warn(const char *fmt, ...)
 {
 	va_list va;
+	int _errno = errno;
 
 	fprintf(stderr, "WARNING: ramon: ");
 
 	va_start(va, fmt);
 	vfprintf(stderr, fmt, va);
 	va_end(va);
+	if (_errno)
+		fprintf(stderr, " (%s)", strerror(_errno));
 	fputs("\n", stderr);
 }
 
