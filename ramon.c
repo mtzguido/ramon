@@ -73,12 +73,23 @@ struct cgroup_res_info
 	long memcurr;
 };
 
+long clk_tck;
+
+struct procstat_info
+{
+	char execname[16]; /* TASK_COMM_LEN = 16, see `man 5 proc' */
+	unsigned long utime; /* in clk_tck units */
+	unsigned long stime; /* in clk_tck units */
+};
+
 /* open directory fd for our cgroup */
 int cgroup_fd;
 /* parent cgroup directory */
 char cgroupfs_root[PATH_MAX];
 /* our cgroup */
 char cgroup_path[PATH_MAX];
+
+FILE *proc_stat_f;
 
 int child_pid;
 
@@ -686,6 +697,8 @@ long cur_wall_us()
 
 void read_cgroup(struct cgroup_res_info *wo)
 {
+	/* TODO: change this API, we only open the same files over and over,
+	 * so keep them open instead. */
 	struct kvfmt cpukeys[] = {
 		{ .key = "usage_usec",  .fmt = "%li", .wo = &wo->usage_usec  },
 		{ .key = "user_usec",   .fmt = "%li", .wo = &wo->user_usec   },
@@ -718,10 +731,73 @@ void print_cgroup_res_info(struct cgroup_res_info *res)
 		outf(0, "group.pidpeak", "%lu", res->pidpeak);
 }
 
+int read_proc_stat(int pid, struct procstat_info *wo)
+{
+	int rc;
+
+	if (!proc_stat_f) {
+		char buf[64];
+
+		sprintf(buf, "/proc/%i/stat", child_pid);
+		proc_stat_f = fopen(buf, "r");
+		if (!proc_stat_f) {
+			warn("Could not open %s", buf);
+			return -1;
+		}
+	} else {
+		rewind(proc_stat_f);
+		fflush(proc_stat_f);
+	}
+
+	/*
+	 * See `man 5 proc'.
+	 *
+	 * The `*' marks a particular specification as assignment-supressed,
+	 * so we don't need to pass an argument to receive the value. However,
+	 * gcc raises a warning if it is combined with a length modifier (`l').
+	 * The `l'` can be removed without functional change, but I don't see
+	 * why this would warn. Keeping_ it helps understand the code,
+	 * and lessens the chance of future bugs (say if we later want to actually
+	 * use a field, removing the `*', but forget to add back the `l').
+	 *
+	 * Anyway, for those fields, just pass a dummy.
+	 */
+	unsigned long lu_dummy;
+	int pid_;
+	char st;
+
+	rc = fscanf(proc_stat_f, "%d   (%[^)]) %c   %*d  %*d  %*d  %*d  %*d  %*u  %lu "
+		       "%lu  %lu  %lu  %lu  %lu"
+			, &pid_
+			, (char*)&wo->execname // warning about size, probably better to change this and be defensive
+			, &st
+			, &lu_dummy
+			, &lu_dummy
+			, &lu_dummy
+			, &lu_dummy
+			, &wo->utime
+			, &wo->stime
+			);
+
+	if (rc != 9) {
+		warn("Parsing procstat failed");
+		return -1;
+	}
+
+	if (pid != pid_)
+		warn("PID mismatch in stat?");
+	/* if (st != 'Z') */
+	/*         warn("Child is not zombie?"); */
+
+	return 0;
+}
+
+
 void poll()
 {
 	static unsigned long last_poll_usage = 0;
 	static unsigned long last_poll_us = 0;
+	static unsigned long last_poll_utime = 0;
 
 	unsigned long delta_us, wall_us;
 	struct cgroup_res_info res;
@@ -741,17 +817,33 @@ void poll()
 
 	read_cgroup(&res);
 
-	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li load=%.2f",
+	unsigned long utime;
+	struct procstat_info stat;
+	int rc = read_proc_stat(child_pid, &stat);
+	if (rc < 0) {
+		warn("Reading procstat during poll failed");
+		utime = 0;
+	} else {
+		utime = stat.utime;
+	}
+
+	long clk_tck = sysconf(_SC_CLK_TCK);
+
+	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li roottime=%.3fs load=%.2f rootload=%.2f",
 			wall_us / 1e6,
 			res.usage_usec / 1e6,
 			res.user_usec / 1e6,
 			res.system_usec / 1e6,
 			res.memcurr,
-			1.0 * (res.usage_usec - last_poll_usage) / delta_us);
+			1.0 * utime / clk_tck,
+			1.0 * (res.usage_usec - last_poll_usage) / delta_us,
+			1000000.0 * (utime - last_poll_utime) / clk_tck / delta_us
+			);
 	ramon_flush();
 
 	last_poll_usage = res.usage_usec;
 	last_poll_us = wall_us;
+	last_poll_utime = utime;
 }
 
 void print_exit_status(int status)
@@ -844,6 +936,8 @@ void prepare_monitor()
 	outf(1, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
 
+	clk_tck = sysconf(_SC_CLK_TCK); /* TODO: check err */
+
 	sfd = setup_signalfd();
 	if (sfd < 0)
 		quit("signalfd");
@@ -886,66 +980,18 @@ void print_overhead(long total_usec)
 
 void print_zombie_stats(int pid)
 {
-	char comm[16]; /* TASK_COMM_LEN = 16, see `man 5 proc' */
-	char buf[64];
-	FILE *f;
+	struct procstat_info stat;
 	int rc;
 
-	sprintf(buf, "/proc/%i/stat", pid);
-	f = fopen(buf, "r");
-	if (!f) {
-		warn("Could not open %s", buf);
+	rc = read_proc_stat(pid, &stat);
+	if (rc < 0) {
+		warn("Reading procstat of zombie failed");
 		return;
 	}
 
-	/*
-	 * See `man 5 proc'.
-	 *
-	 * The `*' marks a particular specification as assignment-supressed,
-	 * so we don't need to pass an argument to receive the value. However,
-	 * gcc raises a warning if it is combined with a length modifier (`l').
-	 * The `l'` can be removed without functional change, but I don't see
-	 * why this would warn. Keeping_ it helps understand the code,
-	 * and lessens the chance of future bugs (say if we later want to actually
-	 * use a field, removing the `*', but forget to add back the `l').
-	 *
-	 * Anyway, for those fields, just pass a dummy.
-	 */
-	unsigned long utime = -1, stime = -1;
-	unsigned long lu_dummy;
-	int pid_;
-	char st;
-
-	rc = fscanf(f, "%d   (%[^)]) %c   %*d  %*d  %*d  %*d  %*d  %*u  %lu "
-		       "%lu  %lu  %lu  %lu  %lu"
-			, &pid_
-			, comm
-			, &st
-			, &lu_dummy
-			, &lu_dummy
-			, &lu_dummy
-			, &lu_dummy
-			, &utime
-			, &stime
-			);
-
-	if (rc != 9) {
-		warn("Parsing procstat failed");
-		return;
-	}
-
-	if (pid != pid_)
-		warn("PID mismatch in stat?");
-	if (st != 'Z')
-		warn("Child is not zombie?");
-
-	fclose(f);
- 
-	long clk_tck = sysconf(_SC_CLK_TCK);
-
-	outf(0, "root.execname", "%s", comm);
-	outf(0, "root.utime", "%.3fs", 1.0 * utime / clk_tck);
-	outf(0, "root.stime", "%.3fs", 1.0 * stime / clk_tck);
+	outf(0, "root.execname", "%s", stat.execname);
+	outf(0, "root.utime", "%.3fs", 1.0 * stat.utime / clk_tck);
+	outf(0, "root.stime", "%.3fs", 1.0 * stat.stime / clk_tck);
 }
 
 int handle_sig()

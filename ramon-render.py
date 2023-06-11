@@ -4,6 +4,7 @@ from parse import *
 
 def load_file(fn):
     loads = {}
+    rloads = {}
     marks = {}
     mems = {}
     nmarks = 0
@@ -16,7 +17,9 @@ def load_file(fn):
             usage = search("usage={:g}", line).fixed[0]
             mem = search("mem={:d}", line).fixed[0]
             load = search("load={:g}", line).fixed[0]
+            rload = search("rootload={:g}", line).fixed[0]
             loads[wall] = load
+            rloads[wall] = rload
             mems[wall] = mem
     with open(fn) as f:
         for line in f:
@@ -27,9 +30,9 @@ def load_file(fn):
             marks[nmarks] = (mark, wall)
             nmarks=nmarks+1
 
-    return loads, mems, marks
+    return rloads, loads, mems, marks
 
-def plot(fn, loads, mems, marks):
+def plot(fn, rloads, loads, mems, marks):
     import matplotlib.pyplot as plt
     import numpy as np
     from math import ceil
@@ -39,10 +42,12 @@ def plot(fn, loads, mems, marks):
     x_axis = []
     y_axis = []
     y2_axis = []
+    y3_axis = []
     for t in loads.keys():
         x_axis.append(t)
         y_axis.append(loads[t])
         y2_axis.append(mems[t] / (1<<30))
+        y3_axis.append(rloads[t])
 
     maxx = ceil(max(loads.keys(), default=1))
     maxy = ceil(max(loads.values(), default=1))
@@ -53,6 +58,7 @@ def plot(fn, loads, mems, marks):
     print("nmarks = {}".format(nmarks));
 
     plt.fill_between(x_axis, 0, y_axis)
+    plt.fill_between(x_axis, 0, y3_axis)
     plt.plot(x_axis, y2_axis, color='C2', linewidth=0.5)
 
     lasttime = -10
@@ -96,9 +102,9 @@ def main():
 
     file = args.file
 
-    loads, mems, marks = load_file(file)
+    rloads, loads, mems, marks = load_file(file)
 
-    img = plot(file, loads, mems, marks)
+    img = plot(file, rloads, loads, mems, marks)
 
     if args.open:
         os.system("xdg-open " + img)
