@@ -17,6 +17,7 @@
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
@@ -74,6 +75,7 @@ struct cgroup_res_info
 };
 
 long clk_tck;
+long nproc;
 
 struct procstat_info
 {
@@ -931,12 +933,39 @@ void epfd_add(int fd)
 		quit("epoll_ctl add %i", fd);
 }
 
+void print_sysinfo()
+{
+	struct sysinfo info;
+	int rc;
+
+	nproc = sysconf(_SC_NPROCESSORS_ONLN);
+	if (nproc < 0)
+		warn("could not read nproc");
+	else
+		outf(1, "nproc", "%i", nproc);
+
+	rc = sysinfo(&info);
+	if (rc < 0) {
+		warn("no sysinfo");
+		return;
+	}
+
+	outf(1, "sys.mem",          "%i MiB", (info.mem_unit * info.totalram) >> 20);
+	outf(1, "sys.freemem",      "%i MiB", (info.mem_unit * info.freeram) >> 20);
+	outf(1, "sys.availablemem", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
+	outf(1, "sys.nprocs", "%i", info.procs);
+}
+
 void prepare_monitor()
 {
 	outf(1, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
 
-	clk_tck = sysconf(_SC_CLK_TCK); /* TODO: check err */
+	clk_tck = sysconf(_SC_CLK_TCK);
+	if (clk_tck < 0)
+		quit("clktck?");
+
+	print_sysinfo();
 
 	sfd = setup_signalfd();
 	if (sfd < 0)
