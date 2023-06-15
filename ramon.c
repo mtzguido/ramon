@@ -99,6 +99,8 @@ int sock_up = -1;
 int sock_down = -1;
 char sock_down_path[PATH_MAX];
 
+int gopipe[2];
+
 void quit(const char *fmt, ...)
 {
 	va_list va;
@@ -444,7 +446,7 @@ void put_in_cgroup()
 	/* Writing "0" adds the current process to the group */
 	rc = write(fd, "0", 1);
 	if (rc < 1)
-		quit("write");
+		quit("write into cgroup.procs");
 
 	close(fd);
 }
@@ -708,7 +710,7 @@ void read_cgroup(struct cgroup_res_info *wo)
 	};
 	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
-	if (open_and_read_val(true, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
+	if (open_and_read_val(false, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
 		wo->mempeak = -1;
 
 	if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
@@ -1226,6 +1228,21 @@ void setup()
 			exit(rc);
 	}
 
+	/* enable memory controller on new group */
+	{
+		FILE *f = fopenat(cgroup_fd, "cgroup.subtree_control", "w");
+		if (!f)
+			quit("cannot open subtree control");
+
+		int rc = fprintf(f, "+memory");
+		if (rc != 7)
+			warn("couldn't enable memory controller?");
+		fclose(f);
+		write(gopipe[1], "x", 1);
+		close(gopipe[0]);
+	}
+
+
 	if (cfg.maxmem) {
 		FILE *f = fopenat(cgroup_fd, "memory.max", "w");
 		if (!f)
@@ -1274,6 +1291,11 @@ int spawn(int argc, char **argv)
 
 	/* Put self in fresh cgroup */
 	put_in_cgroup();
+
+	/* wait for go signal */
+	close(gopipe[1]);
+	char x;
+	read(gopipe[0], &x, 1);
 
 	/* Child should not have signals blocked */
 	restore_signals();
@@ -1384,6 +1406,8 @@ int main(int argc, char **argv)
 		help(argv[0]);
 		exit(1);
 	}
+
+	pipe(gopipe);
 
 	setup();
 
