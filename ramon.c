@@ -1381,7 +1381,14 @@ int main(int argc, char **argv)
 
 	/* Maybe redirect output */
 	if (cfg.outfile) {
-		cfg.fout = fopen(cfg.outfile, "w");
+		int fd = open(cfg.outfile, O_WRONLY | O_CREAT | O_EXCL, 0644);
+		int ctr=0;
+		while (fd < 0 && errno == EEXIST) {
+			char buf[200];
+			sprintf(buf, "t%i-%s", ctr++, cfg.outfile);
+			fd = open(buf, O_WRONLY | O_CREAT | O_EXCL, 0644);
+		}
+		cfg.fout = fdopen(fd, "w");
 		if (!cfg.fout)
 			quit(cfg.outfile);
 	} else if (cfg.save) {
