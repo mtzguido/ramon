@@ -429,6 +429,13 @@ void make_sub_cgroup(const char *ramonroot)
 void try_rm_cgroup()
 {
 	int rc;
+	char buf[5000];
+
+	sprintf(buf, "%s/rootgroup", cgroup_path);
+
+	rc = rmdir(buf);
+	if (rc < 0 && errno != ENOENT)
+		warn("Could not remove cgroup/rootgroup");
 
 	rc = rmdir(cgroup_path);
 	if (rc < 0 && errno != ENOENT)
@@ -438,8 +445,13 @@ void try_rm_cgroup()
 void put_in_cgroup()
 {
 	int rc;
+	int fd;
 
-	int fd = openat(cgroup_fd, "cgroup.procs", O_WRONLY);
+	rc = mkdirat(cgroup_fd, "rootgroup", 0755);
+	if (rc < 0)
+		quit("mkdir sub");
+
+	fd = openat(cgroup_fd, "rootgroup/cgroup.procs", O_WRONLY);
 	if (fd < 0)
 		quit("open cgroup");
 
