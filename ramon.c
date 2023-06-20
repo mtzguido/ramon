@@ -1246,12 +1246,9 @@ void setup()
 		if (!f)
 			quit("cannot open subtree control");
 
-		int rc = fprintf(f, "+memory");
-		if (rc != 7)
+		int rc = fprintf(f, "+memory +pids");
+		if (rc != 13)
 			warn("couldn't enable memory controller?");
-		rc = fprintf(f, "+pids");
-		if (rc != 5)
-			warn("couldn't enable pids controller?");
 		fclose(f);
 		write(gopipe[1], "x", 1);
 		close(gopipe[0]);
