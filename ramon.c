@@ -1249,6 +1249,9 @@ void setup()
 		int rc = fprintf(f, "+memory");
 		if (rc != 7)
 			warn("couldn't enable memory controller?");
+		rc = fprintf(f, "+pids");
+		if (rc != 5)
+			warn("couldn't enable pids controller?");
 		fclose(f);
 		write(gopipe[1], "x", 1);
 		close(gopipe[0]);
