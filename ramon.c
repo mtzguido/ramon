@@ -44,6 +44,7 @@ struct cfg {
 	long maxmem;
 	long maxcpu;
 	long maxstack;
+	bool noclobber;
 };
 
 /* Global config state */
@@ -62,6 +63,7 @@ struct cfg cfg = {
 	.maxmem      = 0,
 	.maxcpu      = 0,
 	.maxstack    = 0,
+	.noclobber   = true,
 };
 
 struct cgroup_res_info
@@ -174,6 +176,7 @@ const struct option longopts[] = {
 	{ .name = "limit-mem",    .has_arg = required_argument, .flag = NULL, .val = 'm' },
 	{ .name = "limit-cpu",    .has_arg = required_argument, .flag = NULL, .val = 'c' },
 	{ .name = "limit-stack",  .has_arg = required_argument, .flag = NULL, .val = 'a' },
+	{ .name = "noclobber",    .has_arg = required_argument, .flag = NULL, .val = 'x' },
 	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
 	{0},
 };
@@ -265,6 +268,10 @@ void parse_opts(int argc, char **argv)
 		case 'a':
 			assert(optarg);
 			cfg.maxstack = atoi(optarg);
+			break;
+
+		case 'x':
+			cfg.noclobber = true;
 			break;
 
 		case -1:
@@ -1381,12 +1388,15 @@ int main(int argc, char **argv)
 
 	/* Maybe redirect output */
 	if (cfg.outfile) {
-		int fd = open(cfg.outfile, O_WRONLY | O_CREAT | O_EXCL, 0644);
+		int flags = O_WRONLY | O_CREAT | (cfg.noclobber ? O_EXCL : 0);
+		int fd = open(cfg.outfile, flags, 0644);
 		int ctr=0;
-		while (fd < 0 && errno == EEXIST) {
-			char buf[200];
-			sprintf(buf, "t%i-%s", ctr++, cfg.outfile);
-			fd = open(buf, O_WRONLY | O_CREAT | O_EXCL, 0644);
+		if (cfg.noclobber) {
+			while (fd < 0 && errno == EEXIST) {
+				char buf[200];
+				sprintf(buf, "%s%i", cfg.outfile, ctr++);
+				fd = open(buf, flags, 0644);
+			}
 		}
 		cfg.fout = fdopen(fd, "w");
 		if (!cfg.fout)
