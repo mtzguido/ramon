@@ -63,7 +63,7 @@ struct cfg cfg = {
 	.maxmem      = 0,
 	.maxcpu      = 0,
 	.maxstack    = 0,
-	.noclobber   = true,
+	.noclobber   = false,
 };
 
 struct cgroup_res_info
