@@ -29,7 +29,7 @@
 #define VAR_RAMONSOCK "RAMONSOCK"
 
 void help(const char *progname);
-void help_cb(void *unused, const char *progname)
+void help_cb(void *unused __attribute__((unused)), const char *progname __attribute__((unused)))
 {
 	help("ramon");
 	exit(0);

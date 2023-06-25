@@ -3,16 +3,11 @@
 #include <string.h>
 #include "opts.h"
 
-void __opt_int_cb(void *par, const char *arg __attribute__((unused)))
+void __opt_inc_cb(void *par, const char *arg __attribute__((unused)))
 {
 	int *i = par;
 	(*i)++;
 }
-
-/* const struct option longopts[] = { */
-/*         { .name = "tee",          .has_arg = required_argument, .flag = NULL, .val = 'e' }, */
-/*         {0}, */
-/* }; */
 
 static int handle1(struct opt *o, bool negated, const char *optarg)
 {
@@ -79,8 +74,12 @@ static int parse_shorts(int nopts, struct opt opts[], const char *opt, const cha
 
 	if (bundled) {
 		rc = parse_short(nopts, opts, opt[0], &opt[1]);
-		if (rc < 0 || rc > 0)
+		if (rc < 0)
 			return rc;
+		/* if the parser used the arg, we must anyway not advance, as it was
+		 * in the same arg */
+		if (rc == 1)
+			return 0;
 	} else if (opt[1] == 0) {
 		rc = parse_short(nopts, opts, opt[0], maybearg);
 		if (rc < 0 || rc > 0)

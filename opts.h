@@ -56,12 +56,12 @@ void print_opts(FILE *f, struct opt opts[]);
 	  .par = _par, .cb = _cb, .wo_bool = NULL, .wo_long = NULL,	\
 	  .wo_str = NULL }
 
-void __opt_int_cb(void *par, const char *arg);
+void __opt_inc_cb(void *par, const char *arg);
 
 #define OPT_INC(_longname, _shortname, _desc, wo)			\
 	{ .longname = _longname, .shortname = _shortname,		\
 	  .negatable = false, .has_arg = HAS_ARG_NO, .desc = _desc,	\
-	  .par = wo, .cb = __opt_int_cb, .wo_bool = NULL,		\
+	  .par = wo, .cb = __opt_inc_cb, .wo_bool = NULL,		\
 	  .wo_long = NULL, .wo_str = NULL }
 
 #define OPT_END		{ .longname = NULL, .shortname = 0 }
