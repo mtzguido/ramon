@@ -102,6 +102,10 @@ int parse_opts(int argc, char **argv, int shuffle, struct opt opts[])
 	int nopts;
 	int i;
 
+	/* Quick check for no options */
+	if (!shuffle && (argc == 1 || (argc > 1 && argv[1][0] != '-')))
+		return 1;
+
 	for (nopts = 0; opts[nopts].longname || opts[nopts].shortname; nopts++)
 		;
 
