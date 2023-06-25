@@ -3,7 +3,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <linux/limits.h>
 #include <sched.h>
 #include <signal.h>
@@ -24,46 +23,59 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "opts.h"
 
 #define VAR_RAMONROOT "RAMONROOT"
 #define VAR_RAMONSOCK "RAMONSOCK"
 
-struct cfg {
-	const char *outfile;
-	bool stderr;
-	FILE *fout;
-	bool keep;
-	bool wait;
-	const char *tally;
-	int debug;
-	int verbosity;
-	bool save; /* save to a fresh file */
-	int pollms;
-	const char *mark;
-	bool render;
-	long maxmem;
-	long maxcpu;
-	long maxstack;
-	bool noclobber;
-};
+void help(const char *progname);
+void help_cb(void *unused, const char *progname)
+{
+	help("ramon");
+	exit(0);
+}
 
-/* Global config state */
-struct cfg cfg = {
-	.outfile     = NULL,
-	.stderr      = true,
-	.fout        = NULL,
-	.keep        = false,
-	.wait        = false,
-	.tally       = NULL,
-	.debug       = 1,
-	.verbosity   = 1,
-	.pollms      = 1000,
-	.mark        = NULL,
-	.render      = false,
-	.maxmem      = 0,
-	.maxcpu      = 0,
-	.maxstack    = 0,
-	.noclobber   = false,
+const char  * opt_outfile     = NULL;
+bool          opt_stderr      = true;
+bool          opt_tee         = false;
+FILE        * opt_fout        = NULL;
+bool          opt_keep        = false;
+bool          opt_wait        = false;
+const char  * opt_tally       = false;
+int           opt_debug       = 1;
+int           opt_verbosity   = 1;
+bool          opt_save        = false;
+long          opt_pollms      = 1000;
+const char  * opt_mark        = NULL;
+bool          opt_render      = false;
+long          opt_maxmem      = 0;
+long          opt_maxcpu      = 0;
+long          opt_maxstack    = 0;
+bool          opt_noclobber   = false;
+
+struct opt ramon_opts[] = {
+	OPT_BOOL("keep", 'k', "Keep the cgroup after ramon finishes", &opt_keep),
+	OPT_BOOL("wait", 'w', "Wait for all processes in cgroup instead of just the root", &opt_wait),
+	OPT_BOOL("save", 's', "Save ramon's output to a freshly created file", &opt_save),
+	OPT_BOOL("noclobber", 0, "Make sure to not overwrite the output file", &opt_noclobber),
+
+	OPT_STR("output", 'o', "Output to <file> instead", &opt_outfile),
+	OPT_STRBOOL("tee", 0, "Tee the output to <file> as well as to stderr", &opt_outfile, &opt_tee),
+	OPT_STR("tally", 't', "Tally the resources of an existing cgroup instead", &opt_tally),
+
+	OPT_STR("mark", 0, "Send a timemark to an enclosing ramon invocation, and do nothing else", &opt_mark),
+
+	OPT_INT("poll", 'p', "Set the poll rate to <int> ms, set to 0 to disable", &opt_pollms),
+
+	OPT_INT("limit-mem", 0, "Limit the group's memory usage to <int> bytes", &opt_maxmem),
+	OPT_INT("limit-cpu", 0, "Limit the group's CPU usage to <int> seconds", &opt_maxcpu),
+	OPT_INT("limit-stack", 0, "Limit *each subprocess* stack to <int> bytes, this is done via ulimit", &opt_maxstack),
+
+	OPT_ACTION("help", 'h', "Display help output and exit", NULL, &help_cb),
+
+	OPT_INC(NULL, 'd', "Increase debug level", &opt_debug),
+	OPT_INC(NULL, 'v', "Increase verbosity", &opt_verbosity),
+	OPT_END,
 };
 
 struct cgroup_res_info
@@ -148,7 +160,7 @@ void __dbg(const char *fmt, ...)
 
 #define dbg(n, ...)				\
 	do {					\
-		if (cfg.debug >= n)	\
+		if (opt_debug >= n)	\
 			__dbg(__VA_ARGS__);	\
 	} while(0)
 
@@ -161,25 +173,6 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode)
 		return NULL;
 	return fdopen(fd, mode);
 }
-
-const struct option longopts[] = {
-	{ .name = "output",       .has_arg = required_argument, .flag = NULL, .val = 'o' },
-	{ .name = "tee",          .has_arg = required_argument, .flag = NULL, .val = 'e' },
-	{ .name = "keep-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'k' },
-	{ .name = "wait-cgroup",  .has_arg = no_argument,       .flag = NULL, .val = 'w' },
-	{ .name = "tally",        .has_arg = required_argument, .flag = NULL, .val = 't' },
-	{ .name = "save",         .has_arg = no_argument,       .flag = NULL, .val = 's' },
-	{ .name = "poll",         .has_arg = optional_argument, .flag = NULL, .val = 'p' },
-	{ .name = "help",         .has_arg = no_argument,       .flag = NULL, .val = 'h' },
-	{ .name = "mark",         .has_arg = required_argument, .flag = NULL, .val = 'n' },
-	{ .name = "render",       .has_arg = no_argument,       .flag = NULL, .val = 'r' },
-	{ .name = "limit-mem",    .has_arg = required_argument, .flag = NULL, .val = 'm' },
-	{ .name = "limit-cpu",    .has_arg = required_argument, .flag = NULL, .val = 'c' },
-	{ .name = "limit-stack",  .has_arg = required_argument, .flag = NULL, .val = 'a' },
-	{ .name = "noclobber",    .has_arg = required_argument, .flag = NULL, .val = 'x' },
-	/* { .name = "debug",        .has_arg = optional_argument, .flag = NULL, .val = 'd' }, */
-	{0},
-};
 
 void notify_up(const char *msg, int len)
 {
@@ -196,102 +189,18 @@ void help(const char *progname)
 {
 	/* fprintf(stderr, "%s: resource accounting and monitoring tool\n", progname); */
 	fprintf(stderr, "This is ramon version %s\n", RAMON_VERSION);
-	fprintf(stderr, "Usage: %s <options> [--] command <opt1> ... <optN>\n", progname);
-}
-
-void parse_opts(int argc, char **argv)
-{
-	int rc;
-
-	while (1) {
-		rc = getopt_long(argc, argv, "+o:r1kt:dqsphvmw", longopts, NULL);
-		/* printf("opt = '%c', optarg = %s\n", rc, optarg); */
-		switch (rc) {
-		case 'o':
-			cfg.outfile = optarg;
-			cfg.stderr = false;
-			break;
-		case 'e':
-			cfg.outfile = optarg;
-			cfg.stderr = true;
-			break;
-
-		case 't':
-			cfg.tally = optarg;
-			break;
-
-		case 'k':
-			cfg.keep = true;
-			break;
-
-		case 'w':
-			cfg.wait = true;
-			break;
-
-		case 'd':
-			cfg.debug++;
-			break;
-
-		case 's':
-			cfg.save = true;
-			break;
-
-		case 'p':
-			if (optarg)
-				cfg.pollms = atoi(optarg);
-			else
-				cfg.pollms = 1000;
-			break;
-
-		case 'h':
-			help(argv[0]);
-			exit(0);
-
-		case 'n':
-			cfg.mark = optarg;
-			break;
-
-		case 'r':
-			cfg.render = true;
-			break;
-
-		case 'm':
-			assert(optarg);
-			cfg.maxmem = atoi(optarg);
-			break;
-
-		case 'c':
-			assert(optarg);
-			cfg.maxcpu = atoi(optarg);
-			break;
-
-		case 'a':
-			assert(optarg);
-			cfg.maxstack = atoi(optarg);
-			break;
-
-		case 'x':
-			cfg.noclobber = true;
-			break;
-
-		case -1:
-			return;
-
-		case '?':
-		default:
-			help(argv[0]);
-			exit(1);
-		}
-	}
+	fprintf(stderr, "Usage: %s <options>\n", progname);
+	fprintf(stderr, "Options:\n");
+	print_opts(stderr, ramon_opts);
 }
 
 void __outf(const char *key, const char *fmt, ...)
 {
 	va_list va;
 
-	assert (cfg.stderr || cfg.fout);
+	assert (opt_stderr || opt_fout);
 
-	if (cfg.stderr) {
+	if (opt_stderr) {
 		/* When printing to stderr we prepend a marker */
 		fprintf(stderr, "ramon: %-20s ", key);
 		va_start(va, fmt);
@@ -299,25 +208,25 @@ void __outf(const char *key, const char *fmt, ...)
 		va_end(va);
 		fputs("\n", stderr);
 	}
-	if (cfg.fout) {
-		fprintf(cfg.fout, "%-20s ",key);
+	if (opt_fout) {
+		fprintf(opt_fout, "%-20s ",key);
 		va_start(va, fmt);
-		vfprintf(cfg.fout, fmt, va);
+		vfprintf(opt_fout, fmt, va);
 		va_end(va);
-		fputs("\n", cfg.fout);
+		fputs("\n", opt_fout);
 	}
 }
 
 void ramon_flush()
 {
 	fflush(stderr);
-	if (cfg.fout)
-		fflush(cfg.fout);
+	if (opt_fout)
+		fflush(opt_fout);
 }
 
 #define outf(n, ...)				\
 	do {					\
-		if (cfg.verbosity >= n)		\
+		if (opt_verbosity >= n)		\
 			__outf(__VA_ARGS__);	\
 	} while(0)
 
@@ -559,7 +468,7 @@ int pending_sigint()
 
 void wait_cgroup()
 {
-	if (cfg.wait) {
+	if (opt_wait) {
 		if (any_in_cgroup(false)) {
 			warn("Waiting for cgroup to finish");
 			while (any_in_cgroup(false) && !pending_sigint())
@@ -932,8 +841,8 @@ void set_poll_timer()
 	 * If pollms=0, then both values are zero,
 	 * and setitimer disables the timer.
 	 */
-	t.tv_sec = cfg.pollms / 1000;
-	t.tv_usec = (cfg.pollms % 1000) * 1000;
+	t.tv_sec = opt_pollms / 1000;
+	t.tv_usec = (opt_pollms % 1000) * 1000;
 	it.it_interval = t;
 	it.it_value    = t;
 
@@ -1153,7 +1062,7 @@ int post_mortem(int pid)
 	outf(0, "loadavg", "%.2f", 1.0f * res.usage_usec / wall_usec);
 	print_overhead(res.usage_usec);
 
-	if (!cfg.keep)
+	if (!opt_keep)
 		try_rm_cgroup();
 	else
 		dbg(1, "Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
@@ -1262,21 +1171,21 @@ void setup()
 	}
 
 
-	if (cfg.maxmem) {
+	if (opt_maxmem) {
 		FILE *f = fopenat(cgroup_fd, "memory.max", "w");
 		if (!f)
 			quit("cannot limit memory");
 
-		fprintf(f, "%li", cfg.maxmem);
+		fprintf(f, "%li", opt_maxmem);
 		fclose(f);
 	}
 
-	if (cfg.maxcpu) {
+	if (opt_maxcpu) {
 		/* FILE *f = fopenat(cgroup_fd, "cpu.max", "w"); */
 		/* if (!f) */
 			quit("cannot limit cpu (IOU)");
 
-		/* fprintf(f, "%li", cfg.maxmem); */
+		/* fprintf(f, "%li", opt_maxmem); */
 		/* fclose(f); */
 	}
 
@@ -1320,15 +1229,15 @@ int spawn(int argc, char **argv)
 	restore_signals();
 
 	/* Maybe limit stack */
-	if (cfg.maxstack)
-		limit_own_stack(cfg.maxstack);
+	if (opt_maxstack)
+		limit_own_stack(opt_maxstack);
 
 	/*
 	 * Close outfile if we opened one. All other files which remain
 	 * were opened with O_CLOEXEC.
 	 */
-	if (cfg.outfile)
-		fclose(cfg.fout);
+	if (opt_outfile)
+		fclose(opt_fout);
 
 	/* TODO: does this really drop privileges? */
 	dbg(2, "getuid() = %i", getuid());
@@ -1355,8 +1264,8 @@ int exec_and_monitor(int argc, char **argv)
 
 	rc = post_mortem(child_pid);
 
-	if (cfg.outfile)
-		fclose(cfg.fout);
+	if (opt_outfile)
+		fclose(opt_fout);
 
 	close(sock_down);
 	int x = unlink(sock_down_path);
@@ -1377,42 +1286,50 @@ FILE *fmkstemps(char *template, int suffixlen)
 int main(int argc, char **argv)
 {
 	int rc;
+	int optind;
 
 	/* non-constant default configs */
-	cfg.fout = NULL;
+	opt_fout = NULL;
 
-	parse_opts(argc, argv);
+	optind = parse_opts(argc, argv, false, ramon_opts);
+	if (optind < 0) {
+		fprintf(stderr, "Use '-h' to see the list of options.\n");
+		exit(1);
+	}
 
-	if (cfg.render && !cfg.outfile)
+	if (opt_outfile && !opt_tee)
+		opt_stderr = false;
+
+	if (opt_render && !opt_outfile)
 		quit("An output file is needed to use --render");
 
 	/* Maybe redirect output */
-	if (cfg.outfile) {
-		int flags = O_WRONLY | O_CREAT | (cfg.noclobber ? O_EXCL : 0);
-		int fd = open(cfg.outfile, flags, 0644);
+	if (opt_outfile) {
+		int flags = O_WRONLY | O_CREAT | (opt_noclobber ? O_EXCL : 0);
+		int fd = open(opt_outfile, flags, 0644);
 		int ctr=0;
-		if (cfg.noclobber) {
+		if (opt_noclobber) {
 			while (fd < 0 && errno == EEXIST) {
 				char buf[200];
-				sprintf(buf, "%s%i", cfg.outfile, ctr++);
+				sprintf(buf, "%s%i", opt_outfile, ctr++);
 				fd = open(buf, flags, 0644);
 			}
 		}
-		cfg.fout = fdopen(fd, "w");
-		if (!cfg.fout)
-			quit(cfg.outfile);
-	} else if (cfg.save) {
+		opt_fout = fdopen(fd, "w");
+		if (!opt_fout)
+			quit(opt_outfile);
+	} else if (opt_save) {
 		char temp[] = "XXXXXX.ramon";
-		cfg.fout = fmkstemps(temp, 6);
-		if (!cfg.fout)
+		opt_fout = fmkstemps(temp, 6);
+		if (!opt_fout)
 			quit("could not create save file %s", temp);
 		dbg(1, "Saving output to %s", temp);
 	}
 
 	/* Tally mode: just parse a cgroup dir and exit,
 	 * no running anything. */
-	if (cfg.tally) {
-		cgroup_fd = open(cfg.tally, O_DIRECTORY | O_CLOEXEC);
+	if (opt_tally) {
+		cgroup_fd = open(opt_tally, O_DIRECTORY | O_CLOEXEC);
 		if (cgroup_fd < 0)
 			quit("open cgroup dir");
 		struct cgroup_res_info res;
@@ -1421,12 +1338,12 @@ int main(int argc, char **argv)
 		exit(0);
 	}
 
-	if (cfg.mark) {
+	if (opt_mark) {
 		/* If we cannot connect, just warn and exit successfully */
 		rc = connect_to_upstream();
 		if (rc < 0)
 			return 0;
-		notify_up(cfg.mark, strlen(cfg.mark));
+		notify_up(opt_mark, strlen(opt_mark));
 		return 0;
 	}
 
@@ -1442,11 +1359,11 @@ int main(int argc, char **argv)
 
 	rc = exec_and_monitor(argc - optind, argv + optind);
 
-	if (cfg.render) {
-		assert(cfg.outfile);
+	if (opt_render) {
+		assert(opt_outfile);
 		char cmd[500];
 		int rc;
-		snprintf(cmd, sizeof cmd, "ramon-render %s", cfg.outfile);
+		snprintf(cmd, sizeof cmd, "ramon-render %s", opt_outfile);
 		rc = system(cmd);
 		if (rc)
 			warn("ramon-render failed");

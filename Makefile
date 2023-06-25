@@ -14,7 +14,9 @@ all: ramon .ramon_setcap
 	$(CC) -c $(CFLAGS) $< -o $@
 
 %: %.o
-	$(CC) $(LDFLAGS) $< $(LDLIBS) -o $@
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+ramon: ramon.o opts.o
 
 .ramon_setcap: ramon
 	sudo setcap cap_dac_override+eip ramon
