@@ -560,12 +560,14 @@ int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[
 	return n;
 }
 
-int open_and_read_val(bool nowarn, int dirfd, const char *pathname, const char *fmt, void *wo)
+int open_and_read_val(bool *nowarn, int dirfd, const char *pathname, const char *fmt, void *wo)
 {
 	FILE *f = fopenat(dirfd, pathname, "r");
 	if (!f) {
-		if (!nowarn)
+		if (nowarn && !*nowarn) {
 			warn("could not open %s", pathname);
+			*nowarn = true;
+		}
 		return -1;
 	}
 	int rc = fscanf(f, fmt, wo);
@@ -621,6 +623,8 @@ long cur_wall_us()
 	return (1000000 * ts.tv_sec + ts.tv_nsec / 1000) - zero_wall_us;
 }
 
+bool nowarn_memorypeak = false;
+
 void read_cgroup(struct cgroup_res_info *wo)
 {
 	/* TODO: change this API, we only open the same files over and over,
@@ -632,13 +636,13 @@ void read_cgroup(struct cgroup_res_info *wo)
 	};
 	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
-	if (open_and_read_val(false, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
+	if (open_and_read_val(&nowarn_memorypeak, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
 		wo->mempeak = -1;
 
-	if (open_and_read_val(true, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
+	if (open_and_read_val(NULL, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
 		wo->pidpeak = -1;
 
-	if (open_and_read_val(true, cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1)
+	if (open_and_read_val(NULL, cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1)
 		wo->memcurr= -1;
 }
 
