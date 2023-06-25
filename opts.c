@@ -33,6 +33,7 @@ static int parse_long(int nopts, struct opt opts[], const char *optname, const c
 	}
 
 	for (i = 0; i < nopts; i++) {
+		/* TODO: handle --opt=arg */
 		if (opts[i].longname && !strcmp(optname, opts[i].longname)) {
 			handle1(&opts[i], negated, opts[i].has_arg == HAS_ARG_YES ? maybearg : NULL);
 

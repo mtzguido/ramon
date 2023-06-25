@@ -54,25 +54,19 @@ long          opt_maxstack    = 0;
 bool          opt_noclobber   = false;
 
 struct opt ramon_opts[] = {
+	OPT_STR("output", 'o', "Output to <file> instead", &opt_outfile),
+	OPT_STRBOOL("tee", 0, "Tee the output to <file> as well as to stderr", &opt_outfile, &opt_tee),
+	OPT_INT("poll", 'p', "Set the poll rate to <int> ms, set to 0 to disable", &opt_pollms),
 	OPT_BOOL("keep", 'k', "Keep the cgroup after ramon finishes", &opt_keep),
+	OPT_STR("mark", 0, "Send a timemark to an enclosing ramon invocation, and do nothing else", &opt_mark),
 	OPT_BOOL("wait", 'w', "Wait for all processes in cgroup instead of just the root", &opt_wait),
 	OPT_BOOL("save", 's', "Save ramon's output to a freshly created file", &opt_save),
 	OPT_BOOL("noclobber", 0, "Make sure to not overwrite the output file", &opt_noclobber),
-
-	OPT_STR("output", 'o', "Output to <file> instead", &opt_outfile),
-	OPT_STRBOOL("tee", 0, "Tee the output to <file> as well as to stderr", &opt_outfile, &opt_tee),
 	OPT_STR("tally", 't', "Tally the resources of an existing cgroup instead", &opt_tally),
-
-	OPT_STR("mark", 0, "Send a timemark to an enclosing ramon invocation, and do nothing else", &opt_mark),
-
-	OPT_INT("poll", 'p', "Set the poll rate to <int> ms, set to 0 to disable", &opt_pollms),
-
 	OPT_INT("limit-mem", 0, "Limit the group's memory usage to <int> bytes", &opt_maxmem),
 	OPT_INT("limit-cpu", 0, "Limit the group's CPU usage to <int> seconds", &opt_maxcpu),
 	OPT_INT("limit-stack", 0, "Limit *each subprocess* stack to <int> bytes, this is done via ulimit", &opt_maxstack),
-
 	OPT_ACTION("help", 'h', "Display help output and exit", NULL, &help_cb),
-
 	OPT_INC(NULL, 'd', "Increase debug level", &opt_debug),
 	OPT_INC(NULL, 'v', "Increase verbosity", &opt_verbosity),
 	OPT_END,
