@@ -1286,9 +1286,6 @@ int main(int argc, char **argv)
 	int rc;
 	int optind;
 
-	/* non-constant default configs */
-	opt_fout = NULL;
-
 	optind = parse_opts(argc, argv, false, ramon_opts);
 	if (optind < 0) {
 		fprintf(stderr, "Use '-h' to see the list of options.\n");
@@ -1333,7 +1330,7 @@ int main(int argc, char **argv)
 		struct cgroup_res_info res;
 		read_cgroup(&res);
 		print_cgroup_res_info(&res);
-		exit(0);
+		return 0;
 	}
 
 	if (opt_mark) {
@@ -1347,8 +1344,8 @@ int main(int argc, char **argv)
 
 	if (optind == argc) {
 		fprintf(stderr, "%s: no command given\n", argv[0]);
-		help(argv[0]);
-		exit(1);
+		fprintf(stderr, "Use '-h' to see the list of options.\n");
+		return 1;
 	}
 
 	pipe(gopipe);
