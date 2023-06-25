@@ -1305,7 +1305,7 @@ int main(int argc, char **argv)
 
 	/* Maybe redirect output */
 	if (opt_outfile) {
-		int flags = O_WRONLY | O_CREAT | (opt_noclobber ? O_EXCL : 0);
+		int flags = O_WRONLY | O_CREAT | O_TRUNC | (opt_noclobber ? O_EXCL : 0);
 		int fd = open(opt_outfile, flags, 0644);
 		int ctr=0;
 		if (opt_noclobber) {
