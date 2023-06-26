@@ -130,6 +130,7 @@ void warn(const char *fmt, ...)
 	va_list va;
 	int _errno = errno;
 
+	fprintf(stderr, "\x1b[33m");
 	fprintf(stderr, "WARNING: ramon: ");
 
 	va_start(va, fmt);
@@ -137,6 +138,7 @@ void warn(const char *fmt, ...)
 	va_end(va);
 	if (_errno)
 		fprintf(stderr, " (%s)", strerror(_errno));
+	fprintf(stderr, "\x1b[0m");
 	fputs("\n", stderr);
 }
 
@@ -197,7 +199,7 @@ void __outf(int col, const char *key, const char *fmt, ...)
 	if (opt_stderr) {
 		/* When printing to stderr we prepend a marker */
 		if (col)
-			fprintf(stderr, "\x1b[31;1m");
+			fprintf(stderr, "\x1b[31m");
 		fprintf(stderr, "ramon: %-20s ", key);
 		va_start(va, fmt);
 		vfprintf(stderr, fmt, va);
@@ -889,15 +891,15 @@ void print_sysinfo()
 		return;
 	}
 
-	outf(1, "sys.mem",          "%i MiB", (info.mem_unit * info.totalram) >> 20);
-	outf(1, "sys.freemem",      "%i MiB", (info.mem_unit * info.freeram) >> 20);
-	outf(1, "sys.availablemem", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
+	outf(1, "sys.mem",           "%i MiB", (info.mem_unit * info.totalram) >> 20);
+	outf(1, "sys.mem.free",      "%i MiB", (info.mem_unit * info.freeram) >> 20);
+	outf(1, "sys.mem.available", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
 	outf(1, "sys.nprocs", "%i", info.procs);
 }
 
 void prepare_monitor()
 {
-	outf(1, "version", "%s", RAMON_VERSION);
+	outf(2, "version", "%s", RAMON_VERSION);
 	print_current_time("start");
 
 	clk_tck = sysconf(_SC_CLK_TCK);
