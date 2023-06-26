@@ -183,7 +183,7 @@ void help(const char *progname)
 {
 	/* fprintf(stderr, "%s: resource accounting and monitoring tool\n", progname); */
 	fprintf(stderr, "This is ramon version %s\n", RAMON_VERSION);
-	fprintf(stderr, "Usage: %s <options>\n", progname);
+	fprintf(stderr, "Usage: %s <options> [--] command <args...>\n", progname);
 	fprintf(stderr, "Options:\n");
 	print_opts(stderr, ramon_opts);
 }
