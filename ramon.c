@@ -188,7 +188,7 @@ void help(const char *progname)
 	print_opts(stderr, ramon_opts);
 }
 
-void __outf(const char *key, const char *fmt, ...)
+void __outf(int col, const char *key, const char *fmt, ...)
 {
 	va_list va;
 
@@ -196,10 +196,14 @@ void __outf(const char *key, const char *fmt, ...)
 
 	if (opt_stderr) {
 		/* When printing to stderr we prepend a marker */
+		if (col)
+			fprintf(stderr, "\x1b[31;1m");
 		fprintf(stderr, "ramon: %-20s ", key);
 		va_start(va, fmt);
 		vfprintf(stderr, fmt, va);
 		va_end(va);
+		if (col)
+			fprintf(stderr, "\x1b[0m");
 		fputs("\n", stderr);
 	}
 	if (opt_fout) {
@@ -218,10 +222,16 @@ void ramon_flush()
 		fflush(opt_fout);
 }
 
-#define outf(n, ...)				\
-	do {					\
-		if (opt_verbosity >= n)		\
-			__outf(__VA_ARGS__);	\
+#define outf(n, ...)					\
+	do {						\
+		if (opt_verbosity >= n)			\
+			__outf(0, __VA_ARGS__);		\
+	} while(0)
+
+#define outf_col(n, col, ...)				\
+	do {						\
+		if (opt_verbosity >= n)			\
+			__outf(col, __VA_ARGS__);	\
 	} while(0)
 
 const char *wifstring(int status)
@@ -781,11 +791,12 @@ void print_exit_status(int status)
 	outf(0, "status", wifstring(status));
 
 	if (WIFEXITED(status)) {
-		outf(0, "exitcode", "%i", WEXITSTATUS(status));
+		int exitcode = WEXITSTATUS(status);
+		outf_col(0, exitcode, "exitcode", "%i", exitcode);
 	} else if (WIFSIGNALED(status)) {
 		int sig = WTERMSIG(status);
-		outf(0, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
-		outf(0, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
+		outf_col(0, 1, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
+		outf_col(0, 0, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
 	}
 }
 
