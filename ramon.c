@@ -209,7 +209,7 @@ void __outf(int col, const char *key, const char *fmt, ...)
 		fputs("\n", stderr);
 	}
 	if (opt_fout) {
-		fprintf(opt_fout, "%-20s ",key);
+		fprintf(opt_fout, "%-15s ",key);
 		va_start(va, fmt);
 		vfprintf(opt_fout, fmt, va);
 		va_end(va);
@@ -893,7 +893,7 @@ void print_sysinfo()
 
 	outf(1, "sys.mem",           "%i MiB", (info.mem_unit * info.totalram) >> 20);
 	outf(1, "sys.mem.free",      "%i MiB", (info.mem_unit * info.freeram) >> 20);
-	outf(1, "sys.mem.available", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
+	outf(1, "sys.mem.avail", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
 	outf(1, "sys.nprocs", "%i", info.procs);
 }
 
