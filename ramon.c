@@ -261,7 +261,8 @@ void skipline(FILE *f)
 /* Find root of cgroup2 mount */
 void find_cgroup_fs()
 {
-	char buf[PATH_MAX];
+	char type[128];
+	char path[PATH_MAX];
 	FILE *f;
 	int rc;
 
@@ -269,14 +270,13 @@ void find_cgroup_fs()
 	if (!f)
 		quit("fopen mounts");
 
-	while (fscanf(f, "%s", buf) > 0) {
-		if (strcmp(buf, "cgroup2")) {
+	// FIXME: if path has special chars, we need to unescape
+	while ((rc = fscanf(f, "%*s %s %s", path, type)) == 2) {
+		if (strcmp(type, "cgroup2")) {
 			skipline(f);
 			continue;
 		}
-		rc = fscanf(f, "%s", cgroupfs_root);
-		if (rc != 1)
-			quit("Could not read mount line?");
+		strcpy(cgroupfs_root, path);
 		fclose(f);
 		return;
 	}
