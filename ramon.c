@@ -405,9 +405,9 @@ bool any_in_cgroup(bool should_warn)
 	unsigned long pid; // type ok?
 	FILE *f;
 
-	f = fopenat(cgroup_fd, "cgroup.procs", "r");
+	f = fopenat(cgroup_fd, "rootgroup/cgroup.procs", "r");
 	if (!f) {
-		warn("Could not open cgroup.procs");
+		warn("Could not open rootgroup/cgroup.procs");
 		/* Optimistically carry on */
 		return false;
 	}
