@@ -654,6 +654,7 @@ void read_cgroup(struct cgroup_res_info *wo)
 	if (open_and_read_val(NULL, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
 		wo->pidpeak = -1;
 
+	// FIXME: change to reading memory.stat key anon?
 	if (open_and_read_val(NULL, cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1)
 		wo->memcurr= -1;
 }
