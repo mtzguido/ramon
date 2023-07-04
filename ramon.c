@@ -142,6 +142,15 @@ void warn(const char *fmt, ...)
 	fputs("\n", stderr);
 }
 
+#define WARN_ONCE(...)				\
+do {						\
+	static int w = 1;			\
+	if (w) {				\
+		warn(__VA_ARGS__);		\
+		w = 0;				\
+	}					\
+} while (0)
+
 void __dbg(const char *fmt, ...)
 {
 	va_list va;
@@ -572,20 +581,15 @@ int open_and_read_kvs(int dirfd, const char *pathname, int nk, struct kvfmt kvs[
 	return n;
 }
 
-int open_and_read_val(bool *nowarn, int dirfd, const char *pathname, const char *fmt, void *wo)
+int open_and_read_val(int dirfd, const char *pathname, const char *fmt, void *wo)
 {
 	FILE *f = fopenat(dirfd, pathname, "r");
-	if (!f) {
-		if (nowarn && !*nowarn) {
-			warn("could not open %s", pathname);
-			*nowarn = true;
-		}
+	if (!f)
 		return -1;
-	}
+
 	int rc = fscanf(f, fmt, wo);
 	fclose(f);
-	if (!nowarn && rc != 1)
-		warn("could not read value");
+
 	return rc;
 }
 
@@ -648,15 +652,20 @@ void read_cgroup(struct cgroup_res_info *wo)
 	};
 	open_and_read_kvs(cgroup_fd, "cpu.stat", 3, cpukeys);
 
-	if (open_and_read_val(&nowarn_memorypeak, cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1)
+	if (open_and_read_val(cgroup_fd, "memory.peak", "%lu", &wo->mempeak) != 1) {
+		WARN_ONCE("Could not read memory.peak");
 		wo->mempeak = -1;
+	}
 
-	if (open_and_read_val(NULL, cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1)
-		wo->pidpeak = -1;
-
-	// FIXME: change to reading memory.stat key anon?
-	if (open_and_read_val(NULL, cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1)
+	if (open_and_read_val(cgroup_fd, "memory.current", "%lu", &wo->memcurr) != 1) {
+		WARN_ONCE("Could not read memory.current");
 		wo->memcurr= -1;
+	}
+
+	if (open_and_read_val(cgroup_fd, "pids.peak", "%lu", &wo->pidpeak) != 1) {
+		WARN_ONCE("Could not read pids.peak");
+		wo->pidpeak = -1;
+	}
 }
 
 void print_cgroup_res_info(struct cgroup_res_info *res)
