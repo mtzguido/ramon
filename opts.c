@@ -111,6 +111,7 @@ int parse_opts(int argc, char **argv, int shuffle, struct opt opts[])
 
 	for (i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--")) {
+			i++;
 			break;
 		} else if (!strncmp(argv[i], "--", 2)) {
 			int rc = parse_long(nopts, opts, argv[i]+2, i+1 < argc ? argv[i+1] : NULL);
