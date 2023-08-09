@@ -52,6 +52,7 @@ long          opt_maxmem      = 0;
 long          opt_maxcpu      = 0;
 long          opt_maxstack    = 0;
 bool          opt_noclobber   = false;
+bool          opt_nohuman     = false;
 
 struct opt ramon_opts[] = {
 	OPT_STR("output", 'o', "Output to <file> instead", &opt_outfile),
@@ -67,6 +68,7 @@ struct opt ramon_opts[] = {
 	OPT_INT("limit-cpu", 0, "Limit the group's CPU usage to <int> seconds", &opt_maxcpu),
 	OPT_INT("limit-stack", 0, "Limit *each subprocess* stack to <int> bytes, this is done via ulimit", &opt_maxstack),
 	OPT_ACTION("help", 'h', "Display help output and exit", NULL, &help_cb),
+	OPT_BOOL("unit", '1', "Output values in single units, no KMG prefixes", &opt_nohuman),
 	OPT_INC(NULL, 'd', "Increase debug level", &opt_debug),
 	OPT_INC(NULL, 'v', "Increase verbosity", &opt_verbosity),
 	OPT_END,
@@ -500,6 +502,11 @@ void wait_cgroup()
 /* FIXME, very heuristic */
 unsigned long humanize(unsigned long x, const char **suf)
 {
+	if (opt_nohuman) {
+		*suf = "";
+		return x;
+	}
+
 	static const char* sufs[] = { "", "K", "M", "G", "T", "P", NULL };
 	int pow = 0;
 
