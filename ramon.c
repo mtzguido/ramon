@@ -1135,7 +1135,14 @@ int post_mortem(int pid)
 	else
 		dbg(1, "Keeping cgroup in path '%s', you should manually delete it eventually.", cgroup_path);
 
-	return WEXITSTATUS(status);
+	if (WIFEXITED(status)) {
+		return WEXITSTATUS(status);
+	} else if (WIFSIGNALED(status)) {
+		return 128 + WTERMSIG(status);
+	} else {
+		assert(!"impos?");
+		return -1;
+	}
 }
 
 void setup_sock_down()
