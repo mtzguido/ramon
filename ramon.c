@@ -507,7 +507,7 @@ unsigned long humanize(unsigned long x, const char **suf)
 		return x;
 	}
 
-	static const char* sufs[] = { "", "K", "M", "G", "T", "P", NULL };
+	static const char* sufs[] = { "", "Ki", "Mi", "Gi", "Ti", "Pi", NULL };
 	int pow = 0;
 
 	/* no more than 5 digits */
