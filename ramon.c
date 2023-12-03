@@ -914,9 +914,22 @@ void print_sysinfo()
 	outf(1, "sys.nprocs", "%i", info.procs);
 }
 
+void print_pwd()
+{
+	char buf[PATH_MAX];
+	char *r = getcwd(buf, PATH_MAX);
+	if (r) {
+		assert (r == buf);
+		outf(1, "cwd", "%s", r);
+	} else {
+		warn("getcwd failed");
+	}
+}
+
 void prepare_monitor()
 {
 	outf(2, "version", "%s", RAMON_VERSION);
+	print_pwd();
 	print_current_time("start");
 
 	clk_tck = sysconf(_SC_CLK_TCK);
