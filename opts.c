@@ -11,6 +11,11 @@ void __opt_inc_cb(void *par, const char *arg __attribute__((unused)))
 
 static int handle1(struct opt *o, bool negated, const char *optarg)
 {
+	if (o->has_arg == HAS_ARG_YES && !optarg) {
+		fprintf(stderr, "missing argument for '--%s'\n", o->longname);
+		return -1;
+	}
+
 	if (o->cb)
 		o->cb(o->par, optarg);
 	if (o->wo_long)
@@ -35,7 +40,9 @@ static int parse_long(int nopts, struct opt opts[], const char *optname, const c
 	for (i = 0; i < nopts; i++) {
 		/* TODO: handle --opt=arg */
 		if (opts[i].longname && !strcmp(optname, opts[i].longname)) {
-			handle1(&opts[i], negated, opts[i].has_arg == HAS_ARG_YES ? maybearg : NULL);
+			int rc = handle1(&opts[i], negated, opts[i].has_arg == HAS_ARG_YES ? maybearg : NULL);
+			if (rc < 0)
+				return rc;
 
 			if (opts[i].has_arg == HAS_ARG_YES)
 				return 1;
@@ -51,14 +58,18 @@ static int parse_long(int nopts, struct opt opts[], const char *optname, const c
 /* returns 1 iff took rest as arg */
 static int parse_short(int nopts, struct opt opts[], char c, const char *maybearg)
 {
-	int i;
+	int i, rc;
 	for (i = 0; i < nopts; i++) {
 		if (opts[i].shortname && c == opts[i].shortname) {
 			if (opts[i].has_arg != HAS_ARG_NO && maybearg) {
-				handle1(&opts[i], false, maybearg);
+				rc = handle1(&opts[i], false, maybearg);
+				if (rc < 0)
+					return rc;
 				return 1;
 			} else {
-				handle1(&opts[i], false, NULL);
+				rc = handle1(&opts[i], false, NULL);
+				if (rc < 0)
+					return rc;
 				return 0;
 			}
 		}
