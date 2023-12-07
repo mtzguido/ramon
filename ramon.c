@@ -696,8 +696,8 @@ void read_cgroup(struct cgroup_res_info *wo)
 void print_cgroup_res_info(struct cgroup_res_info *res)
 {
 	outf(0, "group.total", "%.3fs", res->usage_usec / 1e6);
-	outf(0, "group.utime", "%.3fs", res->user_usec / 1e6);
-	outf(0, "group.stime", "%.3fs", res->system_usec / 1e6);
+	outf(1, "group.utime", "%.3fs", res->user_usec / 1e6);
+	outf(1, "group.stime", "%.3fs", res->system_usec / 1e6);
 
 	if (res->mempeak > 0) {
 		const char *suf;
@@ -1012,9 +1012,9 @@ void print_zombie_stats(int pid)
 		return;
 	}
 
-	outf(0, "root.execname", "%s", stat.execname);
-	outf(0, "root.utime", "%.3fs", 1.0 * stat.utime / clk_tck);
-	outf(0, "root.stime", "%.3fs", 1.0 * stat.stime / clk_tck);
+	outf(1, "root.execname", "%s", stat.execname);
+	outf(1, "root.utime", "%.3fs", 1.0 * stat.utime / clk_tck);
+	outf(1, "root.stime", "%.3fs", 1.0 * stat.stime / clk_tck);
 }
 
 int handle_sig()
