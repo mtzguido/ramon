@@ -65,14 +65,15 @@ Ramon will also output the load average during the call, a rough
 measurement of the parallelism that was exhibited overall. It is simply
 computed as `(total CPU time) / (wall time)`. In this case, a factor
 of 25 for 32 processors shows decent parallelism, but perhaps less than
-what you would expect!
+what you would expect! This is Amdahl's law in play, see below for more.
 
 Also, every second, ramon will poll the group and print a line marked
 with `poll`. The poll will show the times consumed thus far, the current
 memory usage, and the current instantaneous load of the group, which
-makes it trivial to see when your build is actually being parallel. The
-`rootload` field shows the CPU usage of the root process of the group,
-in this case `make`, which does not do much work at all itself.
+makes it trivial to see when your build is actually being parallel. Above
+we see a load of 31.28, which is close to maximum utilization for the 32-thread
+machine. The `rootload` field shows the CPU usage of the *root* process of the
+group, in this case `make`, which does not do much work at all itself.
 
 ## Plots
 
