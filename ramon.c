@@ -46,6 +46,7 @@ bool          opt_keep        = false;
 bool          opt_wait        = false;
 const char  * opt_tally       = false;
 int           opt_debug       = 1;
+int           opt_quiet       = 0;
 int           opt_verbosity   = 1;
 bool          opt_save        = false;
 long          opt_pollms      = 1000;
@@ -76,6 +77,7 @@ struct opt ramon_opts[] = {
 	OPT_BOOL("unit", '1', "Output values in single units, no KMG prefixes", &opt_nohuman),
 	OPT_INC(NULL, 'd', "Increase debug level", &opt_debug),
 	OPT_INC(NULL, 'v', "Increase verbosity", &opt_verbosity),
+	OPT_INC(NULL, 'q', "Decrease verbosity", &opt_quiet),
 	OPT_END,
 };
 
@@ -1377,6 +1379,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Use '-h' to see the list of options.\n");
 		exit(1);
 	}
+
+	/* :-) */
+	opt_verbosity -= opt_quiet;
 
 	if (opt_outfile && !opt_tee)
 		opt_stderr = false;
