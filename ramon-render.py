@@ -53,9 +53,9 @@ def plot(fn, rloads, loads, mems, marks):
     maxy = ceil(max(loads.values(), default=1))
     maxy = ceil(max(maxy, ceil(max(mems.values(), default=1)) / (1<<30)))
     nmarks = len(marks.keys())
-    print("maxx = {}".format(maxx));
-    print("maxy = {}".format(maxy));
-    print("nmarks = {}".format(nmarks));
+    #  print("maxx = {}".format(maxx));
+    #  print("maxy = {}".format(maxy));
+    #  print("nmarks = {}".format(nmarks));
 
     plt.fill_between(x_axis, 0, y_axis)
     plt.fill_between(x_axis, 0, y3_axis)

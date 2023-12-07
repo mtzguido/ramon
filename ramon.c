@@ -75,6 +75,7 @@ struct opt ramon_opts[] = {
 	OPT_INT("limit-stack", 0, "Limit *each subprocess* stack to <int> bytes, this is done via ulimit", &opt_maxstack),
 	OPT_ACTION("help", 'h', "Display help output and exit", NULL, &help_cb),
 	OPT_BOOL("unit", '1', "Output values in single units, no KMG prefixes", &opt_nohuman),
+	OPT_BOOL("render", 0, "Render a graph with the usag information obtained. Requires --tee or --output.", &opt_render),
 	OPT_INC(NULL, 'd', "Increase debug level", &opt_debug),
 	OPT_INC(NULL, 'v', "Increase verbosity", &opt_verbosity),
 	OPT_INC(NULL, 'q', "Decrease verbosity", &opt_quiet),
@@ -1454,7 +1455,7 @@ int main(int argc, char **argv)
 		assert(opt_outfile);
 		char cmd[500];
 		int rc;
-		snprintf(cmd, sizeof cmd, "ramon-render %s", opt_outfile);
+		snprintf(cmd, sizeof cmd, "ramon-render.py %s", opt_outfile);
 		rc = system(cmd);
 		if (rc)
 			warn("ramon-render failed");
