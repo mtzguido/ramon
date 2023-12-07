@@ -3,7 +3,7 @@ include suckless.mk
 CC ?= cc
 CFLAGS = -Wall -Wextra -pedantic -std=c99
 LDFLAGS =
-LDLIBS =
+LDLIBS = -lrt
 
 VERSION=$(shell git describe --dirty --tags HEAD || git rev-parse --short HEAD || echo v_unknown)
 CFLAGS += -DRAMON_VERSION="\"$(VERSION)\""
