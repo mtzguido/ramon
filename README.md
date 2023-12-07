@@ -84,9 +84,6 @@ quickly generate a plot or the CPU and memory usage of the run.
 $ ramon --tee linux.ramon make -j32
 ...
 $ ramon-render.py linux.ramon
-maxx = 65
-maxy = 32
-nmarks = 0
 Saved image in linux.ramon.png
 ```
 And this is the result:
