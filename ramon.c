@@ -25,6 +25,9 @@
 #include <unistd.h>
 #include "opts.h"
 
+#define TIMEOUT_SIGNAL SIGUSR2
+#define TIMEOUT_SIGNAL_VAL (0x24021992)
+
 #define VAR_RAMONROOT "RAMONROOT"
 #define VAR_RAMONSOCK "RAMONSOCK"
 
@@ -50,6 +53,7 @@ const char  * opt_mark        = NULL;
 bool          opt_render      = false;
 long          opt_maxmem      = 0;
 long          opt_maxcpu      = 0;
+long          opt_timeout     = 0;
 long          opt_maxstack    = 0;
 bool          opt_noclobber   = false;
 bool          opt_nohuman     = false;
@@ -65,7 +69,8 @@ struct opt ramon_opts[] = {
 	OPT_BOOL("noclobber", 0, "Make sure to not overwrite the output file", &opt_noclobber),
 	OPT_STR("tally", 't', "Tally the resources of an existing cgroup instead", &opt_tally),
 	OPT_INT("limit-mem", 0, "Limit the group's memory usage to <int> bytes", &opt_maxmem),
-	OPT_INT("limit-cpu", 0, "Limit the group's CPU usage to <int> seconds", &opt_maxcpu),
+	OPT_INT("limit-cpu", 0, "Limit the group's CPU usage to <int> CPU-seconds", &opt_maxcpu),
+	OPT_INT("limit-time", 0, "Limit the total runtime to <int> wall clock seconds", &opt_timeout),
 	OPT_INT("limit-stack", 0, "Limit *each subprocess* stack to <int> bytes, this is done via ulimit", &opt_maxstack),
 	OPT_ACTION("help", 'h', "Display help output and exit", NULL, &help_cb),
 	OPT_BOOL("unit", '1', "Output values in single units, no KMG prefixes", &opt_nohuman),
@@ -201,7 +206,7 @@ void help(const char *progname)
 	print_opts(stderr, ramon_opts);
 }
 
-void __outf(int col, const char *key, const char *fmt, ...)
+void __outf(bool col, const char *key, const char *fmt, ...)
 {
 	va_list va;
 
@@ -228,17 +233,10 @@ void __outf(int col, const char *key, const char *fmt, ...)
 	}
 }
 
-void ramon_flush()
-{
-	fflush(stderr);
-	if (opt_fout)
-		fflush(opt_fout);
-}
-
 #define outf(n, ...)					\
 	do {						\
 		if (opt_verbosity >= n)			\
-			__outf(0, __VA_ARGS__);		\
+			__outf(false, __VA_ARGS__);		\
 	} while(0)
 
 #define outf_col(n, col, ...)				\
@@ -246,6 +244,24 @@ void ramon_flush()
 		if (opt_verbosity >= n)			\
 			__outf(col, __VA_ARGS__);	\
 	} while(0)
+
+void timeout_cpu()
+{
+	outf_col(0, 1, "msg", "CPU limit reached");
+	kill(child_pid, SIGTERM);
+}
+void timeout_wall()
+{
+	outf_col(0, 1, "msg", "Wall clock time limit reached");
+	kill(child_pid, SIGTERM);
+}
+
+void ramon_flush()
+{
+	fflush(stderr);
+	if (opt_fout)
+		fflush(opt_fout);
+}
 
 const char *wifstring(int status)
 {
@@ -800,6 +816,9 @@ void poll()
 			);
 	ramon_flush();
 
+	if (opt_maxcpu && res.usage_usec > opt_maxcpu * 1000000)
+		timeout_cpu();
+
 	last_poll_usage = res.usage_usec;
 	last_poll_us = wall_us;
 	last_poll_utime = utime;
@@ -838,6 +857,7 @@ int setup_signalfd()
 	sigaddset(&sigmask, SIGINT);
 	sigaddset(&sigmask, SIGCHLD);
 	sigaddset(&sigmask, SIGALRM); /* Used for timer */
+	sigaddset(&sigmask, TIMEOUT_SIGNAL); /* Used for timer */
 
 	rc = sigprocmask(SIG_BLOCK, &sigmask, NULL);
 	if (rc < 0)
@@ -854,6 +874,7 @@ void restore_signals()
 	sigaddset(&sigmask, SIGINT);
 	sigaddset(&sigmask, SIGCHLD);
 	sigaddset(&sigmask, SIGALRM);
+	sigaddset(&sigmask, TIMEOUT_SIGNAL);
 	sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
 }
 
@@ -876,7 +897,7 @@ void set_poll_timer()
 
 	rc = setitimer(ITIMER_REAL, &it, NULL);
 	if (rc < 0)
-		warn("Could not set timer; polling may not work");
+		quit("Could not set itimer; polling will not work without it");
 }
 
 void epfd_add(int fd)
@@ -1010,6 +1031,9 @@ int handle_sig()
 		return -1;
 	case SIGALRM:
 		poll();
+		return 0;
+	case TIMEOUT_SIGNAL:
+		timeout_wall();
 		return 0;
 	default:
 		warn("Unexpected signal: %i", si.ssi_signo);
@@ -1221,15 +1245,6 @@ void setup()
 		fclose(f);
 	}
 
-	if (opt_maxcpu) {
-		/* FILE *f = fopenat(cgroup_fd, "cpu.max", "w"); */
-		/* if (!f) */
-			quit("cannot limit cpu (IOU)");
-
-		/* fprintf(f, "%li", opt_maxmem); */
-		/* fclose(f); */
-	}
-
 	/*
 	 * Re-set the root, even if we are subinvocation: messages are
 	 * passed upwards (TODO!).
@@ -1292,6 +1307,31 @@ int spawn(int argc, char **argv)
 	exit(127);
 }
 
+void set_timeout()
+{
+	struct sigevent sev = {
+		.sigev_notify = SIGEV_SIGNAL,
+		.sigev_signo = TIMEOUT_SIGNAL,
+		.sigev_value = { .sival_int = TIMEOUT_SIGNAL_VAL },
+	};
+	timer_t tim;
+	struct itimerspec ts;
+	int rc;
+
+	rc = timer_create(CLOCK_MONOTONIC, &sev, &tim);
+	if (rc < 0)
+		quit("timer_create");
+
+	ts.it_value.tv_sec = opt_timeout;
+	ts.it_value.tv_nsec = 0;
+	ts.it_interval.tv_sec = 0;
+	ts.it_interval.tv_nsec = 0;
+
+	rc = timer_settime(tim, 0, &ts, NULL);
+	if (rc < 0)
+		quit("timer_settime");
+}
+
 int exec_and_monitor(int argc, char **argv)
 {
 	int rc;
@@ -1300,6 +1340,9 @@ int exec_and_monitor(int argc, char **argv)
 
 	child_pid = spawn(argc, argv);
 	outf(1, "childpid", "%lu", child_pid);
+
+	if (opt_timeout)
+		set_timeout();
 
 	wait_monitor();
 
@@ -1340,6 +1383,11 @@ int main(int argc, char **argv)
 
 	if (opt_render && !opt_outfile)
 		quit("An output file is needed to use --render");
+
+	if (opt_maxcpu && opt_pollms == 0) {
+		warn("--limit-cpu will not without polling.");
+		warn("Carrying on anyway... but timeouts will not trigger.");
+	}
 
 	/* Maybe redirect output */
 	if (opt_outfile) {
