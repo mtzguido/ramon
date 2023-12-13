@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# Mostly copied from sudo's completion
+
+_ramon()
+{
+    local cur prev words cword # split
+    _init_completion -s || return
+
+    local i mode=normal
+    [[ $mode == normal ]] &&
+        for ((i = 1; i <= cword; i++)); do
+            if [[ ${words[i]} != -* ]]; then
+                local root_command=${words[i]}
+                _command_offset $i
+                return
+            fi
+            if [[ ${words[i]} == -@(!(-*)e*|-edit) ]]; then
+                mode=edit
+                break
+            fi
+            [[ ${words[i]} == \
+            -@(user|other-user|group|close-from|prompt|!(-*)[uUgCp]) ]] &&
+                ((i++))
+        done
+
+    # $split && return
+
+    if [[ $cur == -* ]]; then
+        local opts=$(_parse_help "$1")
+        COMPREPLY=($(compgen -W '${opts:-$(_parse_usage "$1")}' -- "$cur"))
+        [[ ${COMPREPLY-} == *= ]] && compopt -o nospace
+        return
+    fi
+    if [[ $mode == edit ]]; then
+        _filedir
+    fi
+} &&
+    complete -F _ramon ramon
+
+# ex: filetype=sh
