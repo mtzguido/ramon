@@ -11,6 +11,11 @@ void __opt_inc_cb(void *par, const char *arg __attribute__((unused)))
 
 static int handle1(struct opt *o, bool negated, const char *optarg)
 {
+	if (negated && !o->negatable) {
+		fprintf(stderr, "unknown option: --no-%s\n", o->longname);
+		return -1;
+	}
+
 	if (o->has_arg == HAS_ARG_YES && !optarg) {
 		fprintf(stderr, "missing argument for '--%s'\n", o->longname);
 		return -1;
