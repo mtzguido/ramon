@@ -661,7 +661,11 @@ long zero_wall_us = 0;
 long cur_wall_us()
 {
 	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+	/* I would prefer to use CLOCK_MONOTONIC_RAW here, to not
+	 * take into account any NTP adjustments and the like, but
+	 * AFAIK seitimer cannot use a raw clock, and the clocks
+	 * will drift. I've seen it drift ~1ms in 100 seconds. */
+	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (1000000 * ts.tv_sec + ts.tv_nsec / 1000) - zero_wall_us;
 }
 
@@ -770,6 +774,7 @@ int read_proc_stat(int pid, struct procstat_info *wo)
 	return 0;
 }
 
+/* int poll_ctr = 0; */
 
 void poll()
 {
@@ -782,6 +787,9 @@ void poll()
 
 	/* get absolute time */
 	wall_us = cur_wall_us();
+
+	/* poll_ctr++; */
+	/* outf(0, "poll", "drift=%i us", wall_us - poll_ctr * opt_pollms * 1000); */
 
 	/* relative to last measure */
 	delta_us = wall_us - last_poll_us;
