@@ -1027,7 +1027,8 @@ int handle_sig()
 
 	switch (si.ssi_signo) {
 	case SIGINT:
-		/* Just forward */
+		/* Just forward. Is this sensible? If running
+		 * on a tty, the subprocess will also get the signal. */
 		kill(child_pid, SIGINT);
 		return 0;
 	case SIGCHLD:
