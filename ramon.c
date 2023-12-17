@@ -538,21 +538,25 @@ unsigned long humanize(unsigned long x, const char **suf)
 	return x;
 }
 
-#define HMS_LEN (6+1+2+1+2+1+3+1+1) // HHHHHHhMMmSS.SSSs + '\0'
-void t_hms(char buf[HMS_LEN], int usecs)
+#define HMS_LEN (6+1+2+1+2+1+3+1+1+1) // HHHHHHhMMmSS.SSSs + '\0'
+void t_hms(char buf[HMS_LEN], unsigned long usecs)
 {
-	/* int ms = (usecs / 1000) % 1000; */
-	/* int s  = (usecs / 1000000) % 60; */
-	int m  = (usecs / 60/1000000) % 60;
-	int h  = (usecs / 60/60/1000000);
+	/* unsigned long usecs0 = usecs; */
+	int h, m, s;
+
+	s = usecs / 1000000; usecs %= 1000000;
+	m = s / 60; s %= 60;
+	h = m / 60; m %= 60;
 
 	if (h > 999999)
 		warn("Um... over a million hours?");
 
 	char *p = buf;
 	if (h) p += sprintf(p, "%02dh", h);
-	if (m) p += sprintf(p, "%02dm", m);
-	sprintf(p, "%02.3fs", (usecs % 1000000) / 1e6);
+	if (h || m) p += sprintf(p, "%02dm", m);
+	int len = sprintf(p, "%06.3fs", s + usecs / 1e6);
+	assert (len <= HMS_LEN);
+	/* printf("t_hms(%lu) = %s\n", usecs0, buf); */
 }
 
 struct kvfmt {
@@ -817,12 +821,19 @@ void poll()
 
 	const char *memsuf;
 	unsigned long mem = humanize(res.memcurr, &memsuf);
+	char wall_buf[HMS_LEN];
+	char usage_buf[HMS_LEN];
+	char user_buf[HMS_LEN];
+	char system_buf[HMS_LEN];
 
-	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li%sB roottime=%.3fs load=%.2f rootload=%.2f",
-			wall_us / 1e6,
-			res.usage_usec / 1e6,
-			res.user_usec / 1e6,
-			res.system_usec / 1e6,
+	t_hms(wall_buf,   wall_us);
+	t_hms(usage_buf,  res.usage_usec);
+	t_hms(user_buf,   res.user_usec);
+	t_hms(system_buf, res.system_usec);
+
+	outf(0, "poll", "wall=%s usage=%s user=%s sys=%s mem=%li%sB roottime=%.3fs load=%.2f rootload=%.2f",
+			wall_buf,
+			usage_buf, user_buf, system_buf,
 			mem, memsuf,
 			1.0 * utime / clk_tck,
 			1.0 * (res.usage_usec - last_poll_usage) / delta_us,
