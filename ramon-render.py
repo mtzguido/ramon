@@ -15,7 +15,18 @@ def load_file(fn):
                 continue
             wall = search("wall={:g}", line).fixed[0]
             usage = search("usage={:g}", line).fixed[0]
-            mem = search("mem={:d}", line).fixed[0]
+
+            r = search("mem={:d}{:l}", line).fixed
+            mem = r[0]
+            memU = r[1]
+            match memU:
+                case "KiB":
+                    mem *= 1000;
+                case "MiB":
+                    mem *= 1000000;
+                case "GiB":
+                    mem *= 1000000000;
+
             load = search("load={:g}", line).fixed[0]
             rload = search("rootload={:g}", line).fixed[0]
             loads[wall] = load
