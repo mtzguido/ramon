@@ -815,12 +815,15 @@ void poll()
 
 	long clk_tck = sysconf(_SC_CLK_TCK);
 
-	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li roottime=%.3fs load=%.2f rootload=%.2f",
+	const char *memsuf;
+	unsigned long mem = humanize(res.memcurr, &memsuf);
+
+	outf(0, "poll", "wall=%.3fs usage=%.3fs user=%.3fs sys=%.3fs mem=%li%sB roottime=%.3fs load=%.2f rootload=%.2f",
 			wall_us / 1e6,
 			res.usage_usec / 1e6,
 			res.user_usec / 1e6,
 			res.system_usec / 1e6,
-			res.memcurr,
+			mem, memsuf,
 			1.0 * utime / clk_tck,
 			1.0 * (res.usage_usec - last_poll_usage) / delta_us,
 			1000000.0 * (utime - last_poll_utime) / clk_tck / delta_us
