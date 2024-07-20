@@ -323,6 +323,7 @@ void make_new_cgroup()
 	strcpy(buf, cgroupfs_root);
 
 	strcat(buf, "/ramon_run_XXXXXX");
+	dbg(3, "calling mkdtemp(%s)", buf);
 	char *p = mkdtemp(buf);
 	if (!p)
 		quit("mkdtemp");
@@ -363,6 +364,7 @@ void make_sub_cgroup(const char *ramonroot)
 	/* q = stpcpy(q, buf); */
 	q = stpcpy(q, ramonroot);
 	q = stpcpy(q, "/ramon_XXXXXX");
+	dbg(3, "calling mkdtemp(%s)", buf2);
 	char *p = mkdtemp(buf2);
 	if (!p)
 		quit("mkdtemp");
