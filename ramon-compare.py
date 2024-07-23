@@ -35,6 +35,10 @@ def do_load_ramon_file(fn):
                 ret["mem"] = m
     return ret
 
+def pi_fn(d): return d["fn"]
+def pi_time(d): return d["time"]
+def pi_mem(d): return d["mem"]
+
 def load_ramon_file(fn):
     if fn in cache:
         return cache[fn]
@@ -56,37 +60,19 @@ def find(root):
         elif isdir(f2):
             ret.extend(find(f2))
     return ret
-
-def main():
-    import os
-    import sys
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="ramon output with --poll")
-    parser.add_argument("--open", action="store_true", help="open the generated image")
-    args = parser.parse_args()
-
-    file = args.file
-
-    rloads, loads, mems, marks = load_file(file)
-
-    if args.open:
-        os.system("xdg-open " + img)
-
-def mkmatching(r1, r2, _fs1, _fs2):
+def mkmatching(r1, r2, _ds1, _ds2):
     ret = []
-    fs1=[]
-    fs1.extend(_fs1)
-    fs2=[]
-    fs2.extend(_fs2)
-    fs1.sort()
-    fs2.sort()
-    while fs1 and fs2:
-        h1 = fs1[0]
-        h2 = fs2[0]
-        d1 = load_ramon_file(h1)
-        d2 = load_ramon_file(h2)
+    ds1=[]
+    ds1.extend(_ds1)
+    ds2=[]
+    ds2.extend(_ds2)
+    ds1.sort(key=pi_fn)
+    ds2.sort(key=pi_fn)
+    while ds1 and ds2:
+        d1 = ds1[0]
+        d2 = ds2[0]
+        h1 = d1['fn']
+        h2 = d2['fn']
         th1 = h1.removeprefix(r1)
         th2 = h2.removeprefix(r2)
         if th1 == th2:
@@ -96,16 +82,13 @@ def mkmatching(r1, r2, _fs1, _fs2):
             m['l'] = d1
             m['r'] = d2
             ret.append(m)
-            fs1.pop(0)
-            fs2.pop(0)
+            ds1.pop(0)
+            ds2.pop(0)
         elif th1 < th2:
-            fs1.pop(0)
+            ds1.pop(0)
         else:
-            fs2.pop(0)
+            ds2.pop(0)
     return ret
-
-def pi_time(d): return d["time"]
-def pi_mem(d): return d["mem"]
 
 def m_pi_timediff(m):
     return m['r']['time'] - m['l']['time']
@@ -124,9 +107,9 @@ def sort_and_print_match(pi, n, ms, reverse=True):
         tperc = round(100 * (tdiff / time_l), 1)
         print(f"{fn:70}  {time_l:8}s  {time_r:8}s  {tdiff:8}s  {tperc:4}%")
 
-def sort_and_print(pi, n, fns):
+def sort_and_print(pi, n, ds):
     print(f"{'FILE':70} {'TIME':8} {'MEM':11}")
-    ds = list(map(load_ramon_file, fns))
+    #  ds = list(map(load_ramon_file, fns))
     ds.sort(key=pi, reverse=True)
     for d in ds[:n]:
         fn = d["fn"]
@@ -136,8 +119,11 @@ def sort_and_print(pi, n, fns):
         print(f"{fn:70} {time:8}s {mem:8}KiB")
 
 def go (r1, r2):
-    lhs = find(r1)
-    rhs = find(r2)
+    f_lhs = find(r1)
+    f_rhs = find(r2)
+
+    lhs = list(map(load_ramon_file, f_lhs))
+    rhs = list(map(load_ramon_file, f_rhs))
     all = lhs + rhs
 
     # replace 20 by -1 to print all
