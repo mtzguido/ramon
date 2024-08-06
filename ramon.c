@@ -862,6 +862,7 @@ void print_exit_status(int status)
 		int sig = WTERMSIG(status);
 		outf_col(0, 1, "signal", "%i (SIG%s %s)", sig, signame(sig), strsignal(sig));
 		outf_col(0, 0, "core dumped", "%s", WCOREDUMP(status) ? "true" : "false");
+		outf_col(0, 0, "exitcode", "%i", 128 + sig);
 	}
 }
 
