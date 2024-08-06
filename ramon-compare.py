@@ -33,6 +33,9 @@ def do_load_ramon_file(fn):
             elif comps[0] == "group.mempeak":
                 m = parse_mem(comps[1])
                 ret["mem"] = m
+            elif comps[0] == "exitcode":
+                m = int(comps[1])
+                ret["rc"] = m
     return ret
 
 def pi_fn(d): return d["fn"]
@@ -60,6 +63,7 @@ def find(root):
         elif isdir(f2):
             ret.extend(find(f2))
     return ret
+
 def mkmatching(r1, r2, _ds1, _ds2):
     ret = []
     ds1=[]
@@ -76,12 +80,16 @@ def mkmatching(r1, r2, _ds1, _ds2):
         th1 = h1.removeprefix(r1)
         th2 = h2.removeprefix(r2)
         if th1 == th2:
-            #  print("got a match between " + h1 + " and " + h2)
-            m={}
-            m['fn'] = th1
-            m['l'] = d1
-            m['r'] = d2
-            ret.append(m)
+            # Only match if both succeeded, we do not compare
+            # failed runs, or failed vs sucessful runs
+            if True or (d1['rc'] == 0 and d2['rc'] == 0):
+                #  print("got a match between " + h1 + " and " + h2)
+                m={}
+                m['fn'] = th1
+                m['l'] = d1
+                m['r'] = d2
+                ret.append(m)
+
             ds1.pop(0)
             ds2.pop(0)
         elif th1 < th2:
@@ -104,18 +112,20 @@ def m_pi_mempercdiff(m):
 
 # This repetition sucks, fix it.
 def sort_and_print_match_mem(pi, n, ms, reverse=True):
-    print(f"{'FILE':90}  {'MEM_L':12}  {'MEM_R':12}  {'DIFF':12}  {'DIFF(%)':5}")
+    print(f"|{'FILE':90}  |{'MEM_L':12}  |{'MEM_R':12}  |{'DIFF':12}    |{'DIFF(%)':5}|")
+    print(f"|-------------|-------------:|-------------:|--------------:|------------:|")
     ms.sort(key=pi, reverse=reverse)
     for m in ms[:n]:
         fn = m["fn"]
-        time_l = m['l']["mem"]
-        time_r = m['r']["mem"]
-        tdiff = round(time_r - time_l, 3)
-        tperc = round(100 * (tdiff / time_l), 1)
-        print(f"{fn:90}  {time_l:9}KiB  {time_r:9}KiB  {tdiff:9}KiB  {tperc:4}%")
+        mem_l = m['l']["mem"]
+        mem_r = m['r']["mem"]
+        mdiff = round(mem_r - mem_l, 3)
+        mperc = round(100 * (mdiff / mem_l), 1)
+        print(f"|{fn:90}  |{mem_l:9}KiB  |{mem_r:9}KiB  |{mdiff:9}KiB  |{mperc:4}%|")
 
 def sort_and_print_match(pi, n, ms, reverse=True):
-    print(f"{'FILE':90}  {'TIME_L':9}  {'TIME_R':9}  {'DIFF(s)':9}  {'DIFF(%)':5}")
+    print(f"|{'FILE':90}  |{'TIME_L':9}  |{'TIME_R':9}  |{'DIFF(s)':9}  |{'DIFF(%)':5}|")
+    print(f"|-------------|-------------:|-------------:|--------------:|------------:|")
     ms.sort(key=pi, reverse=reverse)
     for m in ms[:n]:
         fn = m["fn"]
@@ -123,10 +133,11 @@ def sort_and_print_match(pi, n, ms, reverse=True):
         time_r = m['r']["time"]
         tdiff = round(time_r - time_l, 3)
         tperc = round(100 * (tdiff / time_l), 1)
-        print(f"{fn:90}  {time_l:8}s  {time_r:8}s  {tdiff:8}s  {tperc:4}%")
+        print(f"|{fn:90}  |{time_l:8.3f}s  |{time_r:8.3f}s  |{tdiff:8.3f}s  |{tperc:4}%|")
 
 def sort_and_print(pi, n, ds):
-    print(f"{'FILE':90} {'TIME':8} {'MEM':11}")
+    print(f"|{'FILE':90} |{'TIME':8} |{'MEM':11}|")
+    print(f"|------------|----------:|---------:|")
     #  ds = list(map(load_ramon_file, fns))
     ds.sort(key=pi, reverse=True)
     for d in ds[:n]:
@@ -134,7 +145,7 @@ def sort_and_print(pi, n, ds):
         time = d["time"]
         mem = d["mem"]
         mem = round(mem / 1024)
-        print(f"{fn:90} {time:8}s {mem:8}KiB")
+        print(f"|{fn:90} |{time :8.3f}s |{mem:8}KiB|")
 
 def go (r1, r2):
     f_lhs = find(r1)
@@ -146,78 +157,91 @@ def go (r1, r2):
 
     # replace 20 by -1 to print all
 
+    print(
+    print()
+    print("# SUMMARY")
+    nl = len(lhs)
+    nr = len(rhs)
+    sl = len(list(filter(lambda x : x['rc'] == 0, lhs)))
+    sr = len(list(filter(lambda x : x['rc'] == 0, rhs)))
+
+    print(f"- LHS tests = {nl}")
+    print(f"- RHS tests = {nr}")
+    print(f"- LHS success = {sl}  ({100.0 * sl / nl}%)")
+    print(f"- RHS success = {sr}  ({100.0 * sr / nr}%)")
+
     matches = mkmatching(r1, r2, lhs, rhs)
-    #  print(matches)
+    ##  print(matches)
     print()
     print()
-    print("# TOP 20 RUNTIME INCREASE")
-    print("#############################################")
+    print("## TOP 20 RUNTIME INCREASE")
+    print()
     sort_and_print_match(m_pi_timediff, 20, matches)
 
     print()
     print()
-    print("# TOP 20 RUNTIME INCREASE (RELATIVE)")
-    print("#############################################")
+    print("## TOP 20 RUNTIME INCREASE (RELATIVE)")
+    print()
     sort_and_print_match(m_pi_timepercdiff, 20, matches)
 
     print()
     print()
-    print("# TOP 20 RUNTIME DECREASE")
-    print("#############################################")
+    print("## TOP 20 RUNTIME DECREASE")
+    print()
     sort_and_print_match(m_pi_timediff, 20, matches, reverse=False)
 
     print()
     print()
-    print("# TOP 20 RUNTIME DECREASE (RELATIVE)")
-    print("#############################################")
+    print("## TOP 20 RUNTIME DECREASE (RELATIVE)")
+    print()
     sort_and_print_match(m_pi_timepercdiff, 20, matches, reverse=False)
 
     print()
     print()
-    print("# TOP 20 LHS FILES, BY RUNTIME")
-    print("#############################################")
+    print("## TOP 20 LHS FILES, BY RUNTIME")
+    print()
     sort_and_print(pi_time, 20, lhs)
 
     print()
     print()
-    print("# TOP 20 RHS FILES, BY RUNTIME")
-    print("#############################################")
+    print("## TOP 20 RHS FILES, BY RUNTIME")
+    print()
     sort_and_print(pi_time, 20, rhs)
 
     print()
     print()
-    print("# TOP 20 MEMORY INCREASE")
-    print("#############################################")
+    print("## TOP 20 MEMORY INCREASE")
+    print()
     sort_and_print_match_mem(m_pi_memdiff, 20, matches)
 
     print()
     print()
-    print("# TOP 20 MEMORY INCREASE (RELATIVE)")
-    print("#############################################")
+    print("## TOP 20 MEMORY INCREASE (RELATIVE)")
+    print()
     sort_and_print_match_mem(m_pi_mempercdiff, 20, matches)
 
     print()
     print()
-    print("# TOP 20 MEMORY DECREASE")
-    print("#############################################")
+    print("## TOP 20 MEMORY DECREASE")
+    print()
     sort_and_print_match_mem(m_pi_memdiff, 20, matches, reverse=False)
 
     print()
     print()
-    print("# TOP 20 MEMORY DECREASE (RELATIVE)")
-    print("#############################################")
+    print("## TOP 20 MEMORY DECREASE (RELATIVE)")
+    print()
     sort_and_print_match_mem(m_pi_mempercdiff, 20, matches, reverse=False)
 
     print()
     print()
-    print("# TOP 20 LHS FILES, BY PEAK MEMORY USAGE")
-    print("#############################################")
+    print("## TOP 20 LHS FILES, BY PEAK MEMORY USAGE")
+    print()
     sort_and_print(pi_mem, 20, lhs)
 
     print()
     print()
-    print("# TOP 20 RHS FILES, BY PEAK MEMORY USAGE")
-    print("#############################################")
+    print("## TOP 20 RHS FILES, BY PEAK MEMORY USAGE")
+    print()
     sort_and_print(pi_mem, 20, rhs)
 
 def main():
