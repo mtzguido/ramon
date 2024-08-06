@@ -14,11 +14,11 @@ def parse_mem(s):
     memU = r[1]
     match memU:
         case "KiB":
-            mem *= 1000;
+            mem *= 1;
         case "MiB":
-            mem *= 1000000;
+            mem *= 1000;
         case "GiB":
-            mem *= 1000000000;
+            mem *= 1000000;
     return mem
 
 def do_load_ramon_file(fn):
@@ -93,11 +93,29 @@ def mkmatching(r1, r2, _ds1, _ds2):
 def m_pi_timediff(m):
     return m['r']['time'] - m['l']['time']
 
-def m_pi_percdiff(m):
+def m_pi_timepercdiff(m):
     return (m['r']['time'] - m['l']['time']) / m['l']['time']
 
+def m_pi_memdiff(m):
+    return m['r']['mem'] - m['l']['mem']
+
+def m_pi_mempercdiff(m):
+    return (m['r']['mem'] - m['l']['mem']) / m['l']['mem']
+
+# This repetition sucks, fix it.
+def sort_and_print_match_mem(pi, n, ms, reverse=True):
+    print(f"{'FILE':90}  {'MEM_L':12}  {'MEM_R':12}  {'DIFF':12}  {'DIFF(%)':5}")
+    ms.sort(key=pi, reverse=reverse)
+    for m in ms[:n]:
+        fn = m["fn"]
+        time_l = m['l']["mem"]
+        time_r = m['r']["mem"]
+        tdiff = round(time_r - time_l, 3)
+        tperc = round(100 * (tdiff / time_l), 1)
+        print(f"{fn:90}  {time_l:9}KiB  {time_r:9}KiB  {tdiff:9}KiB  {tperc:4}%")
+
 def sort_and_print_match(pi, n, ms, reverse=True):
-    print(f"{'FILE':70}  {'TIME_L':9}  {'TIME_R':9}  {'DIFF(s)':9}  {'DIFF(%)':5}")
+    print(f"{'FILE':90}  {'TIME_L':9}  {'TIME_R':9}  {'DIFF(s)':9}  {'DIFF(%)':5}")
     ms.sort(key=pi, reverse=reverse)
     for m in ms[:n]:
         fn = m["fn"]
@@ -105,10 +123,10 @@ def sort_and_print_match(pi, n, ms, reverse=True):
         time_r = m['r']["time"]
         tdiff = round(time_r - time_l, 3)
         tperc = round(100 * (tdiff / time_l), 1)
-        print(f"{fn:70}  {time_l:8}s  {time_r:8}s  {tdiff:8}s  {tperc:4}%")
+        print(f"{fn:90}  {time_l:8}s  {time_r:8}s  {tdiff:8}s  {tperc:4}%")
 
 def sort_and_print(pi, n, ds):
-    print(f"{'FILE':70} {'TIME':8} {'MEM':11}")
+    print(f"{'FILE':90} {'TIME':8} {'MEM':11}")
     #  ds = list(map(load_ramon_file, fns))
     ds.sort(key=pi, reverse=True)
     for d in ds[:n]:
@@ -116,7 +134,7 @@ def sort_and_print(pi, n, ds):
         time = d["time"]
         mem = d["mem"]
         mem = round(mem / 1024)
-        print(f"{fn:70} {time:8}s {mem:8}KiB")
+        print(f"{fn:90} {time:8}s {mem:8}KiB")
 
 def go (r1, r2):
     f_lhs = find(r1)
@@ -140,7 +158,7 @@ def go (r1, r2):
     print()
     print("# TOP 20 RUNTIME INCREASE (RELATIVE)")
     print("#############################################")
-    sort_and_print_match(m_pi_percdiff, 20, matches)
+    sort_and_print_match(m_pi_timepercdiff, 20, matches)
 
     print()
     print()
@@ -152,7 +170,7 @@ def go (r1, r2):
     print()
     print("# TOP 20 RUNTIME DECREASE (RELATIVE)")
     print("#############################################")
-    sort_and_print_match(m_pi_percdiff, 20, matches, reverse=False)
+    sort_and_print_match(m_pi_timepercdiff, 20, matches, reverse=False)
 
     print()
     print()
@@ -165,6 +183,30 @@ def go (r1, r2):
     print("# TOP 20 RHS FILES, BY RUNTIME")
     print("#############################################")
     sort_and_print(pi_time, 20, rhs)
+
+    print()
+    print()
+    print("# TOP 20 MEMORY INCREASE")
+    print("#############################################")
+    sort_and_print_match_mem(m_pi_memdiff, 20, matches)
+
+    print()
+    print()
+    print("# TOP 20 MEMORY INCREASE (RELATIVE)")
+    print("#############################################")
+    sort_and_print_match_mem(m_pi_mempercdiff, 20, matches)
+
+    print()
+    print()
+    print("# TOP 20 MEMORY DECREASE")
+    print("#############################################")
+    sort_and_print_match_mem(m_pi_memdiff, 20, matches, reverse=False)
+
+    print()
+    print()
+    print("# TOP 20 MEMORY DECREASE (RELATIVE)")
+    print("#############################################")
+    sort_and_print_match_mem(m_pi_mempercdiff, 20, matches, reverse=False)
 
     print()
     print()
