@@ -144,7 +144,6 @@ def sort_and_print(pi, n, ds):
         fn = d["fn"]
         time = d["time"]
         mem = d["mem"]
-        mem = round(mem / 1024)
         print(f"|{fn:90} |{time :8.3f}s |{mem:8}KiB|")
 
 def go (r1, r2):
