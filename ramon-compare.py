@@ -157,7 +157,7 @@ def go (r1, r2):
 
     # replace 20 by -1 to print all
 
-    print(
+    print()
     print()
     print("# SUMMARY")
     nl = len(lhs)
