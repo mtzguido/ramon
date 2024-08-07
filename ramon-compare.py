@@ -88,7 +88,7 @@ def mkmatching(r1, r2, _ds1, _ds2):
         if th1 == th2:
             # Only match if both succeeded, we do not compare
             # failed runs, or failed vs sucessful runs
-            if True or (d1['rc'] == 0 and d2['rc'] == 0):
+            if d1['rc'] == 0 and d2['rc'] == 0:
                 #  print("got a match between " + h1 + " and " + h2)
                 m={}
                 m['fn'] = th1
