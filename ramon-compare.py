@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from parse import *
+from result import *
 
 cache={}
 
@@ -36,7 +37,12 @@ def do_load_ramon_file(fn):
             elif comps[0] == "exitcode":
                 m = int(comps[1])
                 ret["rc"] = m
-    return ret
+
+    if not "rc" in ret or not "time" in ret or not "mem" in ret:
+        print(f"Warning: ignoring {fn} since it is incomplete")
+        return Err('incomplete')
+    else:
+        return Ok(ret)
 
 def pi_fn(d): return d["fn"]
 def pi_time(d): return d["time"]
@@ -146,12 +152,21 @@ def sort_and_print(pi, n, ds):
         mem = d["mem"]
         print(f"|{fn:90} |{time :8.3f}s |{mem:8}KiB|")
 
+def ok_list(it):
+    ret = []
+    for i in it:
+        match i:
+            case Ok(e):
+                ret.append(e)
+            #  case Err(s):
+    return ret
+
 def go (r1, r2):
     f_lhs = find(r1)
     f_rhs = find(r2)
 
-    lhs = list(map(load_ramon_file, f_lhs))
-    rhs = list(map(load_ramon_file, f_rhs))
+    lhs = ok_list(map(load_ramon_file, f_lhs))
+    rhs = ok_list(map(load_ramon_file, f_rhs))
     all = lhs + rhs
 
     # replace 20 by -1 to print all
