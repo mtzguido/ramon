@@ -178,11 +178,13 @@ def go (r1, r2):
     nr = len(rhs)
     sl = len(list(filter(lambda x : x['rc'] == 0, lhs)))
     sr = len(list(filter(lambda x : x['rc'] == 0, rhs)))
+    pl = 100.0 * sl / nl if nl != 0 else 0
+    pr = 100.0 * sl / nl if nl != 0 else 0
 
     print(f"- LHS tests = {nl}")
     print(f"- RHS tests = {nr}")
-    print(f"- LHS success = {sl}  ({100.0 * sl / nl}%)")
-    print(f"- RHS success = {sr}  ({100.0 * sr / nr}%)")
+    print(f"- LHS success = {sl}  ({pl}%)")
+    print(f"- RHS success = {sr}  ({pr}%)")
 
     matches = mkmatching(r1, r2, lhs, rhs)
     ##  print(matches)
