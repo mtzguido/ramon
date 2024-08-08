@@ -100,8 +100,8 @@ def mkmatching(r1, r2, _ds1, _ds2):
         d2 = ds2[0]
         h1 = d1['fn']
         h2 = d2['fn']
-        th1 = h1.removeprefix(r1)
-        th2 = h2.removeprefix(r2)
+        th1 = h1.removeprefix(r1 + '/')
+        th2 = h2.removeprefix(r2 + '/')
         if th1 == th2:
             # Only match if both succeeded, we do not compare
             # failed runs, or failed vs sucessful runs
@@ -178,6 +178,17 @@ def ok_list(it):
             #  case Err(s):
     return ret
 
+def begin_section(hdr):
+    print()
+    print()
+    print(f"## {hdr}")
+    print()
+    print(f"<details><summary>{hdr}</summary>")
+    print()
+
+def end_section():
+    print("</details>")
+
 def go (r1, r2):
     f_lhs = find(r1)
     f_rhs = find(r2)
@@ -205,77 +216,57 @@ def go (r1, r2):
 
     matches = mkmatching(r1, r2, lhs, rhs)
     ##  print(matches)
-    print()
-    print()
-    print("## TOP 20 RUNTIME INCREASE")
-    print()
+    begin_section("TOP 20 RUNTIME INCREASE")
     sort_and_print_match(m_pi_timediff, 20, matches)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 RUNTIME INCREASE (RELATIVE)")
-    print()
+    begin_section("TOP 20 RUNTIME INCREASE (RELATIVE)")
     sort_and_print_match(m_pi_timepercdiff, 20, matches)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 RUNTIME DECREASE")
-    print()
+    begin_section("TOP 20 RUNTIME DECREASE")
     sort_and_print_match(m_pi_timediff, 20, matches, reverse=False)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 RUNTIME DECREASE (RELATIVE)")
-    print()
+    begin_section("TOP 20 RUNTIME DECREASE (RELATIVE)")
     sort_and_print_match(m_pi_timepercdiff, 20, matches, reverse=False)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 LHS FILES, BY RUNTIME")
-    print()
+    begin_section("TOP 20 LHS FILES, BY RUNTIME")
     sort_and_print(pi_time, 20, lhs)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 RHS FILES, BY RUNTIME")
-    print()
+    begin_section("TOP 20 RHS FILES, BY RUNTIME")
     sort_and_print(pi_time, 20, rhs)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 MEMORY INCREASE")
-    print()
+    begin_section("TOP 20 MEMORY INCREASE")
     sort_and_print_match_mem(m_pi_memdiff, 20, matches)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 MEMORY INCREASE (RELATIVE)")
-    print()
+    begin_section("TOP 20 MEMORY INCREASE (RELATIVE)")
     sort_and_print_match_mem(m_pi_mempercdiff, 20, matches)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 MEMORY DECREASE")
-    print()
+    begin_section("TOP 20 MEMORY DECREASE")
     sort_and_print_match_mem(m_pi_memdiff, 20, matches, reverse=False)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 MEMORY DECREASE (RELATIVE)")
-    print()
+    begin_section("TOP 20 MEMORY DECREASE (RELATIVE)")
     sort_and_print_match_mem(m_pi_mempercdiff, 20, matches, reverse=False)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 LHS FILES, BY PEAK MEMORY USAGE")
-    print()
+    begin_section("TOP 20 LHS FILES, BY PEAK MEMORY USAGE")
     sort_and_print(pi_mem, 20, lhs)
+    end_section()
 
-    print()
-    print()
-    print("## TOP 20 RHS FILES, BY PEAK MEMORY USAGE")
-    print()
+    begin_section("TOP 20 RHS FILES, BY PEAK MEMORY USAGE")
     sort_and_print(pi_mem, 20, rhs)
+    end_section()
+
+    begin_section("FULL COMPARISON")
+    sort_and_print_match(lambda x : x['fn'], -1, matches, reverse=False)
+    end_section()
 
 def main():
     import os
