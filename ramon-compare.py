@@ -271,14 +271,18 @@ def go (r1, r2):
 def maybe_extract_url(url):
     import os
     import tempfile
+    import urllib.request
+    import tarfile
 
     if url.find("://") != -1:
         d = tempfile.mkdtemp(suffix="ramon.compare")
         print(f"LHS is URL, downloading to {d}")
         # Download the tarball in the URL to the directory
-        os.system(f"wget -O {d}/lhs.tar.gz {url}")
+        urllib.request.urlretrieve(url, f"{d}/data.tgz")
         # Extract
-        os.system(f"tar -xzf {d}/lhs.tar.gz -C {d}")
+        f = tarfile.open(f"{d}/data.tgz")
+        f.extractall(d)
+        f.close()
         return d
     else:
         return url
