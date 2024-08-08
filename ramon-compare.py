@@ -15,12 +15,29 @@ def parse_mem(s):
     memU = r[1]
     match memU:
         case "KiB":
-            mem *= 1;
-        case "MiB":
             mem *= 1000;
-        case "GiB":
+        case "MiB":
             mem *= 1000000;
+        case "GiB":
+            mem *= 1000000000;
     return mem
+
+def humanize(n):
+    sufs=['', 'Ki', 'Mi', 'Gi', 'Ti']
+    suf=0
+    if n > 10000:
+        n = n / 1000
+        suf = suf + 1
+    if n > 10000:
+        n = n / 1000
+        suf = suf + 1
+    if n > 10000:
+        n = n / 1000
+        suf = suf + 1
+    if n > 10000:
+        n = n / 1000
+        suf = suf + 1
+    return str(n) + sufs[suf]
 
 def do_load_ramon_file(fn):
     ret = {}
@@ -127,7 +144,7 @@ def sort_and_print_match_mem(pi, n, ms, reverse=True):
         mem_r = m['r']["mem"]
         mdiff = round(mem_r - mem_l, 3)
         mperc = round(100 * (mdiff / mem_l), 1)
-        print(f"|{fn:90}  |{mem_l:9}KiB  |{mem_r:9}KiB  |{mdiff:9}KiB  |{mperc:4}%|")
+        print(f"|{fn:90}  |{humanize(mem_l):0.9}B|{humanize(mem_r):0.9}B|{humanize(mdiff):0.9}B|{mperc:4}%|")
 
 def sort_and_print_match(pi, n, ms, reverse=True):
     print(f"|{'FILE':90}  |{'TIME_L':9}  |{'TIME_R':9}  |{'DIFF(s)':9}  |{'DIFF(%)':5}|")
@@ -150,7 +167,7 @@ def sort_and_print(pi, n, ds):
         fn = d["fn"]
         time = d["time"]
         mem = d["mem"]
-        print(f"|{fn:90} |{time :8.3f}s |{mem:8}KiB|")
+        print(f"|{fn:90} |{time :8.3f}s |{humanize(mem):0.8}B|")
 
 def ok_list(it):
     ret = []
