@@ -269,11 +269,10 @@ def go (r1, r2):
     end_section()
 
 def maybe_extract_url(url):
-    import validators
     import os
     import tempfile
 
-    if validators.url(url):
+    if url.find("://") != -1:
         d = tempfile.mkdtemp(suffix="ramon.compare")
         print(f"LHS is URL, downloading to {d}")
         # Download the tarball in the URL to the directory
