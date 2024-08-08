@@ -268,20 +268,39 @@ def go (r1, r2):
     sort_and_print_match(lambda x : x['fn'], -1, matches, reverse=False)
     end_section()
 
+def maybe_extract_url(url):
+    import validators
+    import os
+    import tempfile
+
+    if validators.url(url):
+        d = tempfile.mkdtemp(suffix="ramon.compare")
+        print(f"LHS is URL, downloading to {d}")
+        # Download the tarball in the URL to the directory
+        os.system(f"wget -O {d}/lhs.tar.gz {url}")
+        # Extract
+        os.system(f"tar -xzf {d}/lhs.tar.gz -C {d}")
+        return d
+    else:
+        return url
+
 def main():
     import os
     import sys
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('lhs', help='directory for the old run')
-    parser.add_argument('rhs', help='directory for the new run')
+    parser.add_argument('lhs', help='directory/URL for the old run')
+    parser.add_argument('rhs', help='directory/URL for the new run')
     args = parser.parse_args()
 
     print(f'Comparing {args.lhs} and {args.rhs}')
 
-    lhs = args.lhs.rstrip('/')
-    rhs = args.rhs.rstrip('/')
+    lhs = maybe_extract_url(args.lhs)
+    rhs = maybe_extract_url(args.rhs)
+
+    lhs = lhs.rstrip('/')
+    rhs = rhs.rstrip('/')
 
     go(lhs, rhs)
 
