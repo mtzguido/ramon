@@ -39,9 +39,10 @@ def humanize(n):
         suf = suf + 1
     return str(n) + sufs[suf]
 
-def do_load_ramon_file(fn):
+def do_load_ramon_file(dir, fn):
     ret = {}
     ret["fn"] = fn.removesuffix(".ramon")
+    ret["basefn"] = fn.removesuffix(".ramon").removeprefix(dir + '/')
     with open(fn) as f:
         for line in f:
             comps = line.split()
@@ -65,11 +66,11 @@ def pi_fn(d): return d["fn"]
 def pi_time(d): return d["time"]
 def pi_mem(d): return d["mem"]
 
-def load_ramon_file(fn):
+def load_ramon_file(dir, fn):
     if fn in cache:
         return cache[fn]
     else:
-        d = do_load_ramon_file(fn)
+        d = do_load_ramon_file(dir, fn)
         cache[fn] = d
         return d
 
@@ -161,10 +162,9 @@ def sort_and_print_match(pi, n, ms, reverse=True):
 def sort_and_print(pi, n, ds):
     print(f"|{'FILE':90} |{'TIME':8} |{'MEM':11}|")
     print(f"|------------|----------:|---------:|")
-    #  ds = list(map(load_ramon_file, fns))
     ds.sort(key=pi, reverse=True)
     for d in ds[:n]:
-        fn = d["fn"]
+        fn = d["basefn"]
         time = d["time"]
         mem = d["mem"]
         print(f"|{fn:90} |{time :8.3f}s |{humanize(mem):0.8}B|")
@@ -193,8 +193,8 @@ def go (r1, r2):
     f_lhs = find(r1)
     f_rhs = find(r2)
 
-    lhs = ok_list(map(load_ramon_file, f_lhs))
-    rhs = ok_list(map(load_ramon_file, f_rhs))
+    lhs = ok_list(map(lambda f : load_ramon_file(r1, f), f_lhs))
+    rhs = ok_list(map(lambda f : load_ramon_file(r2, f), f_rhs))
     all = lhs + rhs
 
     # replace 20 by -1 to print all
