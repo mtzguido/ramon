@@ -101,24 +101,34 @@ def plot(fn, rloads, loads, mems, marks):
     print("Saved image in {}".format(imagefn))
     return imagefn
 
+def render_one(file):
+    rloads, loads, mems, marks = load_file(file)
+
+    img = plot(file, rloads, loads, mems, marks)
+
+    return img
+
 def main():
-    import os
+    from os import listdir
+    from os.path import isfile, isdir
     import sys
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="ramon output with --poll")
+    parser.add_argument("file", help="ramon output with --poll (or directory, in which case we render all .res files)")
     parser.add_argument("--open", action="store_true", help="open the generated image")
     args = parser.parse_args()
 
     file = args.file
 
-    rloads, loads, mems, marks = load_file(file)
-
-    img = plot(file, rloads, loads, mems, marks)
-
-    if args.open:
-        os.system("xdg-open " + img)
+    if isdir(file):
+        for f in listdir(file):
+            if isfile(f) and f.endswith(".res") and not isfile(f + ".png"):
+                render_one(f)
+    else:
+        img = render_one(file);
+        if args.open:
+            os.system("xdg-open " + img)
 
 main()
 
