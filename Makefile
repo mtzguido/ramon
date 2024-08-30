@@ -24,7 +24,7 @@ ramon: ramon.o opts.o
 
 .PHONY: install
 install:
-	sudo install -t /usr/local/bin ramon ramon-render.py ramon-compare.py
+	sudo install -t /usr/local/bin ramon ramon-render.py ramon-compare.py ramon-gantt.py
 	sudo setcap cap_dac_override+eip /usr/local/bin/ramon
 
 clean:
