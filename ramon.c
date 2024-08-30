@@ -828,10 +828,17 @@ void poll()
 	char user_buf[HMS_LEN];
 	char system_buf[HMS_LEN];
 
+#if 0
 	t_hms(wall_buf,   wall_us);
 	t_hms(usage_buf,  res.usage_usec);
 	t_hms(user_buf,   res.user_usec);
 	t_hms(system_buf, res.system_usec);
+#else
+	sprintf(wall_buf,   "%.3fs", wall_us / 1e6);
+	sprintf(usage_buf , "%.3fs", res.usage_usec / 1e6);
+	sprintf(user_buf,   "%.3fs", res.user_usec / 1e6);
+	sprintf(system_buf, "%.3fs", res.system_usec / 1e6);
+#endif
 
 	outf(0, "poll", "wall=%s usage=%s user=%s sys=%s mem=%li%sB roottime=%.3fs load=%.2f rootload=%.2f",
 			wall_buf,
@@ -1116,6 +1123,7 @@ void wait_monitor()
 				if (rc > 0) {
 					buf[rc] = 0;
 					outf(0, "mark", "str=%s wall=%.3fs", buf, cur_wall_us() / 1e6);
+					ramon_flush();
 				}
 				/* relay upwards if connected */
 				if (sock_up >= 0)
