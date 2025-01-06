@@ -251,12 +251,14 @@ void __outf(bool col, const char *key, const char *fmt, ...)
 void timeout_cpu()
 {
 	outf_col(0, 1, "msg", "CPU limit reached");
-	kill(child_pid, SIGTERM);
+	if (child_pid)
+		kill(child_pid, SIGTERM);
 }
 void timeout_wall()
 {
 	outf_col(0, 1, "msg", "Wall clock time limit reached");
-	kill(child_pid, SIGTERM);
+	if (child_pid)
+		kill(child_pid, SIGTERM);
 }
 
 void ramon_flush()
@@ -436,6 +438,7 @@ bool any_in_cgroup(bool should_warn)
 	bool ret = false;
 	unsigned long pid; // type ok?
 	FILE *f;
+	char buf[5000];
 
 	f = fopenat(cgroup_fd, "rootgroup/cgroup.procs", "r");
 	if (!f) {
@@ -445,7 +448,6 @@ bool any_in_cgroup(bool should_warn)
 	}
 
 	while (fscanf (f, "%lu", &pid) > 0) {
-		char buf[500];
 		if (!should_warn) {
 			fclose(f);
 			return true;
@@ -453,11 +455,16 @@ bool any_in_cgroup(bool should_warn)
 
 		/* dirty hack, improve */
 		{
-			char fn[200];
+			char fn[500];
 			size_t i = 0;
 			int c;
 			sprintf(fn, "/proc/%lu/cmdline", pid);
 			FILE *ff = fopen(fn, "r");
+
+			/* Process may have died in between */
+			if (!ff)
+				continue;
+
 			while (i < (sizeof fn - 1) && (c = fgetc(ff)) != EOF) {
 				if (!c) c = ' ';
 				buf[i++] = c;
@@ -722,6 +729,12 @@ void print_cgroup_res_info(struct cgroup_res_info *res)
 int read_proc_stat(int pid, struct procstat_info *wo)
 {
 	int rc;
+
+	/* We may have been interrupted too soon. */
+	if (!child_pid) {
+		warn("child PID unset");
+		return -1;
+	}
 
 	if (!proc_stat_f) {
 		char buf[64];
@@ -1061,7 +1074,8 @@ int handle_sig()
 	case SIGINT:
 		/* Just forward. Is this sensible? If running
 		 * on a tty, the subprocess will also get the signal. */
-		kill(child_pid, SIGINT);
+		if (child_pid)
+			kill(child_pid, SIGINT);
 		return 0;
 	case SIGCHLD:
 		return -1;
