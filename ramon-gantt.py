@@ -92,7 +92,7 @@ def plot(fn, nproc, sch):
     #  fig.update_xaxes()
 
     imagefn = fn + ".gantt.png"
-    #  fig.write_image(imagefn)
+    fig.write_image(imagefn)
     plt.show()
 
     print("Saved image in {}".format(imagefn))
