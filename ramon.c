@@ -977,8 +977,8 @@ void print_sysinfo()
 		return;
 	}
 
-	outf(1, "sys.mem",           "%i MiB", (info.mem_unit * info.totalram) >> 20);
-	outf(1, "sys.mem.free",      "%i MiB", (info.mem_unit * info.freeram) >> 20);
+	outf(1, "sys.mem",       "%i MiB", (info.mem_unit * info.totalram) >> 20);
+	outf(1, "sys.mem.free",  "%i MiB", (info.mem_unit * info.freeram) >> 20);
 	outf(1, "sys.mem.avail", "%i MiB", (info.mem_unit * (info.totalram - info.bufferram)) >> 20);
 	outf(1, "sys.nprocs", "%i", info.procs);
 }
