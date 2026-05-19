@@ -219,7 +219,7 @@ void __outf(bool col, const char *key, const char *fmt, ...)
 		/* When printing to stderr we prepend a marker */
 		if (col)
 			fprintf(stderr, "\x1b[31m");
-		fprintf(stderr, "ramon: %-20s ", key);
+		fprintf(stderr, "ramon: %-17s ", key);
 		va_start(va, fmt);
 		vfprintf(stderr, fmt, va);
 		va_end(va);
@@ -228,7 +228,7 @@ void __outf(bool col, const char *key, const char *fmt, ...)
 		fputs("\n", stderr);
 	}
 	if (opt_fout) {
-		fprintf(opt_fout, "%-15s ",key);
+		fprintf(opt_fout, "%-12s ",key);
 		va_start(va, fmt);
 		vfprintf(opt_fout, fmt, va);
 		va_end(va);
@@ -799,7 +799,7 @@ void poll()
 {
 	static unsigned long last_poll_usage = 0;
 	static unsigned long last_poll_us = 0;
-	static unsigned long last_poll_utime = 0;
+	/* static unsigned long last_poll_utime = 0; */
 
 	unsigned long delta_us, wall_us;
 	struct cgroup_res_info res;
@@ -847,19 +847,20 @@ void poll()
 	t_hms(user_buf,   res.user_usec);
 	t_hms(system_buf, res.system_usec);
 #else
-	sprintf(wall_buf,   "%.3fs", wall_us / 1e6);
-	sprintf(usage_buf , "%.3fs", res.usage_usec / 1e6);
-	sprintf(user_buf,   "%.3fs", res.user_usec / 1e6);
-	sprintf(system_buf, "%.3fs", res.system_usec / 1e6);
+	sprintf(wall_buf,   "%.2fs", wall_us / 1e6);
+	sprintf(usage_buf , "%.2fs", res.usage_usec / 1e6);
+	sprintf(user_buf,   "%.2fs", res.user_usec / 1e6);
+	sprintf(system_buf, "%.2fs", res.system_usec / 1e6);
 #endif
 
-	outf(0, "poll", "wall=%s usage=%s user=%s sys=%s mem=%li%sB roottime=%.3fs load=%.2f rootload=%.2f",
+	outf(0, "poll", "wall=%s usage=%s user=%s sys=%s mem=%li%sB roottime=%.3fs load=%.2f",
+			//"rootload=%.2f",
 			wall_buf,
 			usage_buf, user_buf, system_buf,
 			mem, memsuf,
 			1.0 * utime / clk_tck,
-			1.0 * (res.usage_usec - last_poll_usage) / delta_us,
-			1000000.0 * (utime - last_poll_utime) / clk_tck / delta_us
+			1.0 * (res.usage_usec - last_poll_usage) / delta_us
+			//1000000.0 * (utime - last_poll_utime) / clk_tck / delta_us
 			);
 	ramon_flush();
 
@@ -868,7 +869,7 @@ void poll()
 
 	last_poll_usage = res.usage_usec;
 	last_poll_us = wall_us;
-	last_poll_utime = utime;
+	/* last_poll_utime = utime; */
 }
 
 void print_exit_status(int status)

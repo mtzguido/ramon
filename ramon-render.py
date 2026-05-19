@@ -28,7 +28,8 @@ def load_file(fn):
                     mem *= 1000000000;
 
             load = search("load={:g}", line).fixed[0]
-            rload = search("rootload={:g}", line).fixed[0]
+            r = search("rootload={:g}", line)
+            rload = r.fixed[0] if r else 0
             loads[wall] = load
             rloads[wall] = rload
             mems[wall] = mem
