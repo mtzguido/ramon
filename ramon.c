@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
 #include <linux/limits.h>
 #include <sched.h>
 #include <signal.h>
@@ -1509,9 +1510,15 @@ int main(int argc, char **argv)
 
 	if (opt_render) {
 		assert(opt_outfile);
-		char cmd[500];
+		char cmd[PATH_MAX + 500];
+		char self[PATH_MAX];
 		int rc;
-		snprintf(cmd, sizeof cmd, "ramon-render.py %s", opt_outfile);
+		ssize_t len = readlink("/proc/self/exe", self, sizeof self - 1);
+		if (len < 0)
+			quit("readlink /proc/self/exe: %s", strerror(errno));
+		self[len] = '\0';
+		char *dir = dirname(self);
+		snprintf(cmd, sizeof cmd, "%s/ramon-render.py %s", dir, opt_outfile);
 		rc = system(cmd);
 		if (rc)
 			warn("ramon-render failed");
