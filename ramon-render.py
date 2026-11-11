@@ -21,11 +21,11 @@ def load_file(fn):
             memU = r[1]
             match memU:
                 case "KiB":
-                    mem *= 1000;
+                    mem *= 1024;
                 case "MiB":
-                    mem *= 1000000;
+                    mem *= 1024 ** 2;
                 case "GiB":
-                    mem *= 1000000000;
+                    mem *= 1024 ** 3;
 
             load = search("load={:g}", line).fixed[0]
             r = search("rootload={:g}", line)
