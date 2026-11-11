@@ -1325,6 +1325,8 @@ int spawn(int argc, char **argv)
 	fflush(NULL);
 
 	pid = fork();
+	if (pid < 0)
+		quit("fork");
 	if (pid)
 		return pid;
 
